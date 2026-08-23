@@ -34,7 +34,7 @@ final class VaultSession: ObservableObject {
 
     private let keyManager: VaultKeyManager
     private let cloud: CloudKitService
-    private let reminders = ReminderScheduler()
+    private let reminders = ReminderScheduler.shared
 
     private var backgroundedAt: Date?
     private var dataKey: SymmetricKey?
@@ -153,7 +153,8 @@ final class VaultSession: ObservableObject {
             phase = .deviceLimitReached(registered)
         case .admitted, .unknown:
             if settings.remindersEnabled {
-                _ = await reminders.requestAuthorizationIfNeeded()
+                await reminders.requestAuthorization()
+                await reminders.rescheduleAsync(for: store.items)
             }
         }
     }

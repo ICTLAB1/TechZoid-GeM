@@ -138,7 +138,35 @@ enum CategoryTemplates {
 
     /// A brand new item pre-filled with its template.
     static func newItem(category: ItemCategory) -> VaultItem {
-        VaultItem(category: category, fields: fields(for: category))
+        VaultItem(
+            category: category,
+            fields: fields(for: category),
+            reminderRepeat: defaultRepeat(for: category)
+        )
+    }
+
+    /// EMIs and card bills come round every month; policies usually once a
+    /// year. Starting there means most entries need no thought at all.
+    static func defaultRepeat(for category: ItemCategory) -> ReminderRepeat {
+        switch category {
+        case .loan, .card: .monthly
+        case .insurance: .yearly
+        default: .never
+        }
+    }
+
+    /// The field naming the bank, insurer or lender behind an entry.
+    static func institutionField(for category: ItemCategory) -> String {
+        subtitleField(for: category)
+    }
+
+    /// The money figure worth naming in a reminder, when there is one.
+    static func amountField(for category: ItemCategory) -> String? {
+        switch category {
+        case .loan: "EMI amount"
+        case .insurance: "Premium amount"
+        default: nil
+        }
     }
 
     /// Which field, if present, is worth showing under the title in lists.

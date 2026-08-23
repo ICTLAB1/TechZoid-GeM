@@ -13,6 +13,7 @@ final class AppSettings: ObservableObject {
         static let hasCompletedSetup = "settings.hasCompletedSetup"
         static let requireBiometricsToReveal = "settings.requireBiometricsToReveal"
         static let lastHolder = "settings.lastHolder"
+        static let detailedNotifications = "settings.detailedNotifications"
     }
 
     static let autoLockChoices: [Int] = [0, 30, 60, 300, 900]
@@ -42,6 +43,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(requireBiometricsToReveal, forKey: Key.requireBiometricsToReveal) }
     }
 
+    /// Notifications name the person, the bank and the amount. Turning this
+    /// off falls back to "an EMI is due soon" with no identifying detail.
+    @Published var detailedNotifications: Bool {
+        didSet { defaults.set(detailedNotifications, forKey: Key.detailedNotifications) }
+    }
+
     /// Pre-fills "belongs to" with whatever was used last.
     @Published var lastHolder: String {
         didSet { defaults.set(lastHolder, forKey: Key.lastHolder) }
@@ -58,7 +65,8 @@ final class AppSettings: ObservableObject {
             Key.remindersEnabled: true,
             Key.hasCompletedSetup: false,
             Key.requireBiometricsToReveal: false,
-            Key.lastHolder: ""
+            Key.lastHolder: "",
+            Key.detailedNotifications: true
         ])
         autoLockSeconds = defaults.integer(forKey: Key.autoLockSeconds)
         biometricsEnabled = defaults.bool(forKey: Key.biometricsEnabled)
@@ -67,6 +75,7 @@ final class AppSettings: ObservableObject {
         hasCompletedSetup = defaults.bool(forKey: Key.hasCompletedSetup)
         requireBiometricsToReveal = defaults.bool(forKey: Key.requireBiometricsToReveal)
         lastHolder = defaults.string(forKey: Key.lastHolder) ?? ""
+        detailedNotifications = defaults.bool(forKey: Key.detailedNotifications)
     }
 
     static func autoLockLabel(_ seconds: Int) -> String {

@@ -71,10 +71,40 @@ last year's premium receipt.
 
 ### Reminders
 
-Give a policy its renewal date or a loan its EMI date and the app schedules a
-local notification, from a day to a month ahead. The banner deliberately says
-only *"A policy is coming up for renewal"* — never which one — because
-lock-screen text is visible to anyone holding the phone.
+Bank loans, insurance premiums and card bills don't come round once — so
+reminders repeat. Set the first due date and a cadence (**monthly**,
+quarterly, half-yearly, **yearly**, or once), choose how far ahead you want
+telling, and the app takes it from there. New loans and cards default to
+monthly, policies to yearly.
+
+Notifications name what's due and whose it is:
+
+> **HDFC Bank EMI due in 3 days**
+> Home loan
+> Priya · ₹45,000 · due 5 Sep
+
+The bank or insurer comes from the entry's Lender / Insurer / Issuer field,
+the person from its **Belongs to** tag, and the amount from EMI or premium.
+Anything missing is simply left out.
+
+That detail is readable on the lock screen, which is the point — and also the
+trade-off. **Settings → Notifications** has a switch to fall back to a discreet
+*"An EMI is due soon"* with no names or amounts, and shows you a preview of
+your own next reminder either way, so the choice is made by looking at it.
+
+The same screen handles permission: it asks the first time, tells you plainly
+if iOS is blocking notifications, and links straight to the system setting that
+fixes it. The app icon carries a badge for anything already overdue.
+
+Dates roll forward on their own. A monthly EMI due on the 5th keeps reading
+"overdue" for a week afterwards, then moves to next month — and the 31st lands
+on the last day of a short month rather than drifting into the next one.
+
+*Under the hood:* iOS holds at most 64 pending local notifications per app, so
+Vault schedules the 60 soonest across every entry and rebuilds that list each
+time you open it. A handful of monthly EMIs covers well over a year ahead.
+Reminders are marked time-sensitive; to have iOS honour that during a Focus,
+add the **Time Sensitive Notifications** capability in Xcode.
 
 ### Finding things
 

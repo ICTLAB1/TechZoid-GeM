@@ -58,7 +58,7 @@ final class VaultStore: ObservableObject {
     private let cloud: CloudKitService
     private let keyManager: VaultKeyManager
     private let tokens = SyncTokenStore()
-    private let reminders = ReminderScheduler()
+    private let reminders = ReminderScheduler.shared
 
     private var dataKey: SymmetricKey?
     private var material: VaultKeyMaterial?
@@ -129,7 +129,7 @@ final class VaultStore: ObservableObject {
         case .recentlyUpdated:
             input.sorted { $0.updatedAt > $1.updatedAt }
         case .reminderDate:
-            input.sorted { ($0.reminderDate ?? .distantFuture) < ($1.reminderDate ?? .distantFuture) }
+            input.sorted { ($0.nextDueDate ?? .distantFuture) < ($1.nextDueDate ?? .distantFuture) }
         }
     }
 
@@ -172,7 +172,7 @@ final class VaultStore: ObservableObject {
             guard let remaining = item.daysUntilReminder else { return false }
             return remaining <= days
         }
-        .sorted { ($0.reminderDate ?? .distantFuture) < ($1.reminderDate ?? .distantFuture) }
+        .sorted { ($0.nextDueDate ?? .distantFuture) < ($1.nextDueDate ?? .distantFuture) }
     }
 
     var summary: VaultSummary { VaultSummary.build(from: items) }

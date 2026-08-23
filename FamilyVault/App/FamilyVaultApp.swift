@@ -21,6 +21,7 @@ struct FamilyVaultApp: App {
                 .environmentObject(session)
                 .environmentObject(session.store)
                 .environmentObject(session.settings)
+                .environmentObject(ReminderScheduler.shared)
                 .tint(Theme.accent)
                 .preferredColorScheme(nil)
                 .task { await session.bootstrap() }

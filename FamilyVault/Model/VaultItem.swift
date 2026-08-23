@@ -78,6 +78,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
     var attachments: [ItemAttachment]
     var reminderDate: Date?
     var reminderLeadDays: Int
+    var reminderRepeat: ReminderRepeat
     var isFavourite: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -97,6 +98,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
         attachments: [ItemAttachment] = [],
         reminderDate: Date? = nil,
         reminderLeadDays: Int = 7,
+        reminderRepeat: ReminderRepeat = .never,
         isFavourite: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -114,6 +116,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
         self.attachments = attachments
         self.reminderDate = reminderDate
         self.reminderLeadDays = reminderLeadDays
+        self.reminderRepeat = reminderRepeat
         self.isFavourite = isFavourite
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -136,6 +139,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
         attachments = (try? container.decode([ItemAttachment].self, forKey: .attachments)) ?? []
         reminderDate = try? container.decodeIfPresent(Date.self, forKey: .reminderDate)
         reminderLeadDays = (try? container.decode(Int.self, forKey: .reminderLeadDays)) ?? 7
+        reminderRepeat = (try? container.decode(ReminderRepeat.self, forKey: .reminderRepeat)) ?? .never
         isFavourite = (try? container.decode(Bool.self, forKey: .isFavourite)) ?? false
         createdAt = (try? container.decode(Date.self, forKey: .createdAt)) ?? Date()
         updatedAt = (try? container.decode(Date.self, forKey: .updatedAt)) ?? Date()
@@ -168,12 +172,39 @@ struct VaultItem: Codable, Identifiable, Hashable {
         }
     }
 
-    /// Days until the reminder fires, negative once it is overdue.
-    var daysUntilReminder: Int? {
+    /// How many days an overdue repeating due date keeps showing as overdue
+    /// before it rolls on to the next one. An EMI due on the 5th should still
+    /// read "overdue" on the 7th, not "due in 28 days".
+    private static let overdueGraceDays = 7
+
+    /// The occurrence this entry is currently pointing at. For a one-off that
+    /// is simply the date entered; for an EMI or a yearly premium it walks
+    /// forward from the first one.
+    var nextDueDate: Date? {
         guard let reminderDate else { return nil }
+        guard let stride = reminderRepeat.monthStride else { return reminderDate }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard let graceFloor = calendar.date(byAdding: .day, value: -Self.overdueGraceDays, to: today) else {
+            return reminderDate
+        }
+
+        var step = 0
+        while step < 1200 {
+            guard let candidate = calendar.date(byAdding: .month, value: stride * step, to: reminderDate) else { break }
+            if calendar.startOfDay(for: candidate) >= graceFloor { return candidate }
+            step += 1
+        }
+        return reminderDate
+    }
+
+    /// Days until the next occurrence, negative once it is overdue.
+    var daysUntilReminder: Int? {
+        guard let due = nextDueDate else { return nil }
         let calendar = Calendar.current
         let from = calendar.startOfDay(for: Date())
-        let to = calendar.startOfDay(for: reminderDate)
+        let to = calendar.startOfDay(for: due)
         return calendar.dateComponents([.day], from: from, to: to).day
     }
 

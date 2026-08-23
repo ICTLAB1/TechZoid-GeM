@@ -233,6 +233,12 @@ struct ReminderRow: View {
                     .font(.body)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                if !attribution.isEmpty {
+                    Text(attribution)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Text(dueText)
                     .font(.caption)
                     .foregroundStyle(isOverdue ? Color.red : .secondary)
@@ -250,7 +256,7 @@ struct ReminderRow: View {
     private var isOverdue: Bool { (item.daysUntilReminder ?? 0) < 0 }
 
     private var dueText: String {
-        guard let days = item.daysUntilReminder, let date = item.reminderDate else { return "" }
+        guard let days = item.daysUntilReminder, let date = item.nextDueDate else { return "" }
         let formatted = date.formatted(date: .abbreviated, time: .omitted)
         switch days {
         case ..<0: return "Overdue — was \(formatted)"
@@ -258,6 +264,12 @@ struct ReminderRow: View {
         case 1: return "\(item.category.reminderLabel) tomorrow"
         default: return "\(item.category.reminderLabel) in \(days) days — \(formatted)"
         }
+    }
+
+    /// "Priya · HDFC Bank" under the title, so the list answers "whose, and
+    /// with whom" without opening anything.
+    private var attribution: String {
+        [item.holder, item.subtitle].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

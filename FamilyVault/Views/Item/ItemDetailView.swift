@@ -42,13 +42,23 @@ struct ItemDetailView: View {
                     }
                 }
 
-                if let reminderDate = item.reminderDate {
+                if let reminderDate = item.nextDueDate {
                     CardSection(title: item.category.reminderLabel) {
                         HStack {
                             Image(systemName: "bell.fill")
                                 .foregroundStyle(dueTint(for: item))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(reminderDate.formatted(date: .long, time: .omitted))
+                                HStack(spacing: 6) {
+                                    Text(reminderDate.formatted(date: .long, time: .omitted))
+                                    if item.reminderRepeat != .never {
+                                        Text(item.reminderRepeat.shortLabel)
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Theme.accent.opacity(0.15))
+                                            .clipShape(Capsule())
+                                    }
+                                }
                                 Text(dueDescription(for: item))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

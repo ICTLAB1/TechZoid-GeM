@@ -61,11 +61,18 @@ struct ItemEditorView: View {
                     }
                 }
 
-                Section(item.category.reminderLabel) {
+                Section {
                     Toggle("Remind me", isOn: $hasReminder.animation())
                     if hasReminder {
-                        DatePicker(item.category.reminderLabel, selection: $reminderDate, displayedComponents: .date)
-                        Picker("Remind me", selection: $item.reminderLeadDays) {
+                        DatePicker(dueLabel, selection: $reminderDate, displayedComponents: .date)
+
+                        Picker("Repeats", selection: $item.reminderRepeat) {
+                            ForEach(ReminderRepeat.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
+                        }
+
+                        Picker("Tell me", selection: $item.reminderLeadDays) {
                             Text("On the day").tag(0)
                             Text("1 day before").tag(1)
                             Text("3 days before").tag(3)
@@ -73,6 +80,14 @@ struct ItemEditorView: View {
                             Text("2 weeks before").tag(14)
                             Text("1 month before").tag(30)
                         }
+                    }
+                } header: {
+                    Text(item.category.reminderLabel)
+                } footer: {
+                    if hasReminder {
+                        Text(reminderExplanation)
+                    } else if item.category == .loan || item.category == .insurance || item.category == .card {
+                        Text("Set this and Vault will tell you before every payment, by name — which bank, whose account, and how much.")
                     }
                 }
 
@@ -125,6 +140,45 @@ struct ItemEditorView: View {
                 }
             }
         }
+    }
+
+    /// "Next EMI date" reads oddly once it repeats; "First EMI date" doesn't.
+    private var dueLabel: String {
+        guard item.reminderRepeat != .never else { return item.category.reminderLabel }
+        switch item.category {
+        case .loan: return "First EMI date"
+        case .card: return "First due date"
+        case .insurance: return "Next renewal date"
+        default: return item.category.reminderLabel
+        }
+    }
+
+    /// Spells the rule back in a sentence, so nobody has to infer it from two
+    /// pickers sitting next to each other.
+    private var reminderExplanation: String {
+        let lead: String
+        switch item.reminderLeadDays {
+        case 0: lead = "on the day"
+        case 1: lead = "1 day before"
+        case let days: lead = "\(days) days before"
+        }
+
+        let date = reminderDate.formatted(date: .abbreviated, time: .omitted)
+        switch item.reminderRepeat {
+        case .never:
+            return "One reminder, \(lead) \(date)."
+        case .monthly:
+            let day = Calendar.current.component(.day, from: reminderDate)
+            return "A reminder \(lead) the \(ordinal(day)) of every month, starting \(date)."
+        case .quarterly, .halfYearly, .yearly:
+            return "A reminder \(lead) each due date, \(item.reminderRepeat.label.lowercased()) from \(date)."
+        }
+    }
+
+    private func ordinal(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     private func addField(kind: FieldKind) {

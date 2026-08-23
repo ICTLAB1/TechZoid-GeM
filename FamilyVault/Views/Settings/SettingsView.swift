@@ -1,11 +1,26 @@
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @EnvironmentObject private var session: VaultSession
     @EnvironmentObject private var store: VaultStore
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var reminders: ReminderScheduler
 
     @State private var confirmingWipe = false
+
+    private var notificationStatusNeedsAttention: Bool {
+        settings.remindersEnabled && !reminders.isAuthorized
+    }
+
+    private var notificationStatusLabel: String {
+        guard settings.remindersEnabled else { return "Off" }
+        switch reminders.authorizationStatus {
+        case .authorized, .provisional, .ephemeral: return "\(reminders.scheduledCount) scheduled"
+        case .denied: return "Blocked"
+        default: return "Not allowed yet"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -95,20 +110,20 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle(isOn: $settings.remindersEnabled) {
-                        Label("Renewal & EMI reminders", systemImage: "bell.badge")
-                    }
-                    .onChange(of: settings.remindersEnabled) { _, enabled in
-                        if enabled {
-                            store.scheduleSync()
-                        } else {
-                            ReminderScheduler().cancelAll()
+                    NavigationLink {
+                        NotificationSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Notifications", systemImage: "bell.badge")
+                            Spacer()
+                            Text(notificationStatusLabel)
+                                .foregroundStyle(notificationStatusNeedsAttention ? Color.red : Color.secondary)
                         }
                     }
                 } header: {
                     Text("Reminders")
                 } footer: {
-                    Text("Notifications only say that something is due — never which policy or which card. Details stay inside the locked app.")
+                    Text("Renewal, EMI and bill reminders, and whether they name the person and the bank.")
                 }
 
                 Section {
@@ -170,6 +185,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .task { await reminders.refreshAuthorizationStatus() }
             .confirmationDialog("Remove this vault from this iPhone?", isPresented: $confirmingWipe, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { session.removeVaultFromThisDevice() }
                 Button("Cancel", role: .cancel) {}
