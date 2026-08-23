@@ -196,35 +196,75 @@ struct ZoomableImage: View {
     }
 }
 
-/// Add-attachment control: camera roll, or any file from Files.
+/// Add-attachment control: scan with the camera, pick from photos, or take a
+/// file from Files. Whatever arrives is read on the device and — where the
+/// entry has empty fields — used to fill them in.
 struct AttachmentPicker: View {
     var item: VaultItem
+
     @EnvironmentObject private var store: VaultStore
 
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var isImportingFile = false
+    @State private var isScanning = false
     @State private var errorMessage: String?
-    @State private var isWorking = false
+    @State private var progress: String?
+
+    @State private var reviewOutcome: VaultStore.AutoFillOutcome?
+    @State private var reviewDocumentName = ""
+    @State private var showingReview = false
+
+    private var isCard: Bool { item.category == .card }
 
     var body: some View {
-        HStack(spacing: 12) {
-            PhotosPicker(selection: $photoSelection, maxSelectionCount: 5, matching: .images) {
-                Label("Photos", systemImage: "photo.on.rectangle")
-            }
-            .buttonStyle(.bordered)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if DocumentScannerView.isAvailable {
+                    Button {
+                        isScanning = true
+                    } label: {
+                        Label(isCard ? "Scan card" : "Scan", systemImage: "doc.viewfinder")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
 
-            Button {
-                isImportingFile = true
-            } label: {
-                Label("Files", systemImage: "folder")
-            }
-            .buttonStyle(.bordered)
+                PhotosPicker(selection: $photoSelection, maxSelectionCount: 5, matching: .images) {
+                    Label("Photos", systemImage: "photo.on.rectangle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
-            if isWorking { ProgressView().controlSize(.small) }
-            Spacer()
+                Button {
+                    isImportingFile = true
+                } label: {
+                    Label("Files", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Spacer()
+            }
+
+            if let progress {
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.mini)
+                    Text(progress).font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
+        .fullScreenCover(isPresented: $isScanning) {
+            DocumentScannerView(
+                onFinish: { pages in
+                    isScanning = false
+                    Task { await handleScan(pages) }
+                },
+                onCancel: { isScanning = false }
+            )
+            .ignoresSafeArea()
+        }
         .onChange(of: photoSelection) { _, selection in
             guard !selection.isEmpty else { return }
             Task { await importPhotos(selection) }
@@ -239,6 +279,11 @@ struct AttachmentPicker: View {
             case .failure(let error): errorMessage = error.localizedDescription
             }
         }
+        .sheet(isPresented: $showingReview) {
+            if let reviewOutcome {
+                ImportReviewView(outcome: reviewOutcome, documentName: reviewDocumentName)
+            }
+        }
         .alert("Attachment", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
@@ -246,41 +291,117 @@ struct AttachmentPicker: View {
         }
     }
 
+    // MARK: - Scanning
+
+    private func handleScan(_ pages: [UIImage]) async {
+        guard !pages.isEmpty else { return }
+        progress = isCard ? "Reading the card…" : "Building the PDF…"
+        defer { progress = nil }
+
+        let text = await TextRecognizer.text(from: pages)
+
+        if isCard {
+            // A card is read, not filed: storing a photograph of the plastic
+            // alongside the numbers would put both in one place for nothing.
+            let result = CardScanner.read(text)
+            let fields = CardScanner.fields(from: result)
+            guard !fields.isEmpty else {
+                errorMessage = "Couldn't read a card number from that. Try again in better light, with the card flat and filling the frame."
+                return
+            }
+            finish(fields: fields, documentName: "the scanned card")
+            return
+        }
+
+        progress = "Reading the document…"
+        guard let pdf = PDFBuilder.makePDF(from: pages) else {
+            errorMessage = "Those pages couldn't be turned into a PDF."
+            return
+        }
+
+        let name = "Scan \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
+        attach(data: pdf, filename: name, type: UTType.pdf.identifier, text: text, pageCount: pages.count)
+        extractAndFill(from: text, documentName: name)
+    }
+
+    // MARK: - Picking
+
     private func importPhotos(_ selection: [PhotosPickerItem]) async {
-        isWorking = true
-        defer { isWorking = false; photoSelection = [] }
+        progress = "Adding photos…"
+        defer { progress = nil; photoSelection = [] }
 
         for (offset, picked) in selection.enumerated() {
             guard let data = try? await picked.loadTransferable(type: Data.self) else { continue }
             let name = "Photo \(Date().formatted(date: .abbreviated, time: .omitted)) \(offset + 1).jpg"
-            add(data: data, filename: name, type: UTType.jpeg.identifier)
+
+            var text = ""
+            if let image = UIImage(data: data) {
+                text = await TextRecognizer.recognize(image) ?? ""
+            }
+            attach(data: data, filename: name, type: UTType.jpeg.identifier, text: text, pageCount: nil)
+
+            // Only the first image drives the fields; five holiday photos
+            // shouldn't each fight over the same policy number.
+            if offset == 0, !text.isEmpty { extractAndFill(from: text, documentName: name) }
         }
     }
 
     private func importFiles(_ urls: [URL]) async {
-        isWorking = true
-        defer { isWorking = false }
+        progress = "Reading…"
+        defer { progress = nil }
 
-        for url in urls {
+        for (offset, url) in urls.enumerated() {
             let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try? Data(contentsOf: url)
+            if scoped { url.stopAccessingSecurityScopedResource() }
 
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data else {
                 errorMessage = "Could not read \(url.lastPathComponent)."
                 continue
             }
+
             let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? .data
-            add(data: data, filename: url.lastPathComponent, type: type.identifier)
+            var text = ""
+            if type.conforms(to: .pdf) {
+                text = await TextRecognizer.text(fromPDF: data)
+            } else if type.conforms(to: .image), let image = UIImage(data: data) {
+                text = await TextRecognizer.recognize(image) ?? ""
+            }
+
+            attach(data: data, filename: url.lastPathComponent, type: type.identifier, text: text, pageCount: nil)
+            if offset == 0, !text.isEmpty { extractAndFill(from: text, documentName: url.lastPathComponent) }
         }
     }
 
-    private func add(data: Data, filename: String, type: String) {
-        // Re-read the item: earlier files in this batch already changed it.
+    // MARK: - Storing and filling
+
+    private func attach(data: Data, filename: String, type: String, text: String, pageCount: Int?) {
         let current = store.item(id: item.id) ?? item
         do {
-            try store.addAttachment(data: data, filename: filename, typeIdentifier: type, to: current)
+            try store.addAttachment(
+                data: data,
+                filename: filename,
+                typeIdentifier: type,
+                to: current,
+                extractedText: text.isEmpty ? nil : text,
+                pageCount: pageCount
+            )
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    private func extractAndFill(from text: String, documentName: String) {
+        let candidates = DocumentFieldExtractor.fields(in: text, category: item.category)
+        guard !candidates.isEmpty else { return }
+        finish(fields: candidates, documentName: documentName)
+    }
+
+    private func finish(fields: [ExtractedField], documentName: String) {
+        let outcome = store.autoFill(fields, into: item.id)
+        guard !outcome.isEmpty else { return }
+        reviewOutcome = outcome
+        reviewDocumentName = documentName
+        showingReview = true
     }
 }

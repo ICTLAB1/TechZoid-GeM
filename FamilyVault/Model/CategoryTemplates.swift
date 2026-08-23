@@ -104,6 +104,17 @@ enum CategoryTemplates {
                 ItemField(label: "Linked mobile", kind: .phone)
             ]
 
+        case .document:
+            [
+                ItemField(label: "Document type", kind: .text),
+                ItemField(label: "Issued by", kind: .text),
+                ItemField(label: "In the name of", kind: .text),
+                ItemField(label: "Reference number", kind: .secret),
+                ItemField(label: "Issued on", kind: .date),
+                ItemField(label: "Valid until", kind: .date),
+                ItemField(label: "Where the original is kept", kind: .multiline)
+            ]
+
         case .login:
             [
                 ItemField(label: "Website / app", kind: .url),
@@ -178,6 +189,7 @@ enum CategoryTemplates {
         case .investment: "Institution / AMC"
         case .loan: "Lender"
         case .identity: "Document type"
+        case .document: "Issued by"
         case .login: "Username"
         case .property: "Asset type"
         case .note: "Detail"

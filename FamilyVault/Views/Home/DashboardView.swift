@@ -79,6 +79,11 @@ struct DashboardView: View {
 
     // MARK: - Sections
 
+    private var documentsSubtitle: String {
+        let count = store.attachmentCount
+        return count == 0 ? "Scan or attach a policy, a statement, a deed" : "\(count) file\(count == 1 ? "" : "s"), all shareable"
+    }
+
     private var gettingStartedComplete: Bool {
         !store.items.isEmpty && store.devices.count >= 2 && settings.remindersEnabled && reminders.isAuthorized
     }
@@ -93,6 +98,8 @@ struct DashboardView: View {
                 .tracking(0.6)
 
             VStack(spacing: 0) {
+                toolRow("Documents", documentsSubtitle, "doc.on.doc.fill", DocumentsLibraryView())
+                RowDivider()
                 toolRow("Year ahead", "What's due, month by month", "calendar", YearAheadView())
                 RowDivider()
                 toolRow("Important numbers", "Every helpline and agent, tap to call", "phone.fill", ContactsView())

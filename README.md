@@ -28,6 +28,7 @@ inventing them:
 | Identity Documents | PAN, Aadhaar, passport, licence — number, issue/expiry, authority |
 | Logins | site, username, password, registered email/mobile, 2FA backup codes |
 | Property & Assets | registration number, purchase value, where the papers are kept, locker details |
+| Personal Documents | any paperwork that belongs to no account — certificates, agreements, records |
 | Secure Notes | anything else |
 
 - Every field can be renamed, removed or added to, and any new field can be
@@ -40,18 +41,69 @@ inventing them:
 - Each entry records **who changed it last and when** — "last changed 3 Aug on
   Priya's iPhone" — so a surprise edit has an explanation.
 
-### Documents
+### Documents & scanning
 
-Attach photos and PDFs to any entry — the policy paper, a photo of the card,
-last year's premium receipt.
+Attach photos and PDFs to any entry — and scan straight from the camera.
 
-- Added from the camera roll or from Files; photos are downscaled to 2048px
-  before storage so a scan doesn't cost 8 MB of sync.
+- **Scan** uses Apple's document camera: edge detection, perspective
+  correction, multi-page. The pages become one PDF, compressed to a few
+  hundred KB rather than the 8 MB a raw scan costs.
+- **Personal Documents** is its own category for paperwork that belongs to no
+  particular account — a degree certificate, the rent agreement, medical
+  records.
+- **The Documents library** lists every file in the vault in one place,
+  filterable by category and searchable by file name *or by the text inside*.
+  Swipe any row to send it on — to an insurer, a bank, an accountant.
 - Encrypted with the same key as everything else. What iCloud stores is the
   ciphertext file, byte for byte.
 - Viewed **inside** the app — PDFs and images are decrypted into memory and
-  rendered from there, so a readable copy never touches the filesystem.
+  rendered from there, so a readable copy only ever hits disk at the moment
+  you explicitly share one.
 - 20 MB per file; larger ones are refused rather than silently truncated.
+
+### Reading a document into the fields
+
+Add a policy bond or a loan sanction letter and Vault reads it on the phone —
+the embedded text layer if the PDF has one, Apple's on-device OCR if it
+doesn't — then fills in what it recognises: policy or loan number, insurer or
+lender, sum assured, premium, EMI, interest rate, dates, nominee, helpline.
+
+**Scan a card** and the same machinery reads the number, expiry, name and
+network off the plastic. The card number is checked against the Luhn checksum
+that every real card satisfies, so an OCR misread is discarded rather than
+saved — and the photograph itself is deliberately *not* kept, because storing
+a picture of the card next to its CVV would put both in one place for nothing.
+
+Three rules make this safe rather than merely clever:
+
+1. **A value is only written on its own into a field that is empty.** Anything
+   that would overwrite what you typed is shown to you first, with the
+   document's version and yours side by side.
+2. **Anything the parser isn't confident about is proposed, never applied** —
+   listed under "not sure about these", with the line it came from as evidence.
+3. **Everything applied can be undone in one tap**, from the review sheet.
+
+Be realistic about the accuracy: Indian insurers and banks lay documents out
+however they like, and OCR on a phone photo is imperfect. Expect a good policy
+PDF to fill most fields and a crumpled photocopy to fill few. The design above
+is what makes a bad read a minor annoyance instead of corrupted records.
+
+### What a policy actually gives you
+
+Policies, loans and investments get a plain-language summary at the top of the
+entry, assembled automatically:
+
+> **Pays ₹25,00,000 to Priya Jain**
+> · Priya Jain receives ₹25,00,000 on a valid claim.
+> · Costs ₹42,318 yearly.
+> · Next premium due 14 Sep 2026.
+> · To claim, call 1800 425 9876 at LIC.
+> · Includes an accidental death benefit. *(from the attached document)*
+
+Lines drawn from the attached document are marked as such, so they're never
+mistaken for something that was checked and typed in. The whole summary can be
+shared as text — for the person who has to act on the policy and was never the
+one who bought it.
 
 ### Knowing what you've got
 
@@ -355,8 +407,9 @@ deletions).
 - **No auto-fill into Safari or other apps.** It would mean running an
   extension outside the app's own lock, which is a materially larger attack
   surface than copy-and-paste with an expiring clipboard.
-- **No OCR auto-fill from a scanned policy.** Worth having one day; it would
-  need on-device Vision only, and was left out rather than half-built.
+- **No cloud OCR or document AI.** Reading a document happens entirely on the
+  phone, with Vision and PDFKit. Sending a policy bond to a server to be parsed
+  more cleverly would undo the point of the app.
 - **No bank or account connections.** Every figure here is one you typed. That
   is why nothing in this app can move money.
 - **No analytics, no crash reporting, no network calls of any kind** other than

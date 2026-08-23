@@ -121,6 +121,16 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        DocumentsLibraryView()
+                    } label: {
+                        HStack {
+                            Label("Documents", systemImage: "doc.on.doc.fill")
+                            Spacer()
+                            Text("\(store.attachmentCount)").foregroundStyle(.secondary)
+                        }
+                    }
+
+                    NavigationLink {
                         YearAheadView()
                     } label: {
                         Label("Year ahead", systemImage: "calendar")

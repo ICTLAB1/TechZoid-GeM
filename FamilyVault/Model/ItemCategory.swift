@@ -7,6 +7,7 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable, Hashable {
     case investment
     case loan
     case identity
+    case document
     case login
     case property
     case note
@@ -21,6 +22,7 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable, Hashable {
         case .investment: "Investments"
         case .loan: "Loans & EMIs"
         case .identity: "Identity Documents"
+        case .document: "Personal Documents"
         case .login: "Logins"
         case .property: "Property & Assets"
         case .note: "Secure Notes"
@@ -34,7 +36,8 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable, Hashable {
         case .insurance: "Policy"
         case .investment: "Investment"
         case .loan: "Loan"
-        case .identity: "Document"
+        case .identity: "Identity Document"
+        case .document: "Personal Document"
         case .login: "Login"
         case .property: "Asset"
         case .note: "Note"
@@ -49,6 +52,7 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable, Hashable {
         case .investment: "chart.line.uptrend.xyaxis"
         case .loan: "indianrupeesign.circle.fill"
         case .identity: "person.text.rectangle.fill"
+        case .document: "doc.text.fill"
         case .login: "key.fill"
         case .property: "house.fill"
         case .note: "note.text"
@@ -63,6 +67,7 @@ enum ItemCategory: String, Codable, CaseIterable, Identifiable, Hashable {
         case .investment: Color(red: 0.90, green: 0.55, blue: 0.13)
         case .loan: Color(red: 0.84, green: 0.29, blue: 0.33)
         case .identity: Color(red: 0.24, green: 0.55, blue: 0.62)
+        case .document: Color(red: 0.33, green: 0.35, blue: 0.70)
         case .login: Color(red: 0.42, green: 0.45, blue: 0.52)
         case .property: Color(red: 0.55, green: 0.42, blue: 0.24)
         case .note: Color(red: 0.36, green: 0.38, blue: 0.44)

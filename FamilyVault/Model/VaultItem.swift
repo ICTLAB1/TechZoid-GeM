@@ -40,13 +40,42 @@ struct ItemAttachment: Codable, Identifiable, Hashable {
     var typeIdentifier: String
     var byteCount: Int
     var addedAt: Date
+    /// Text read out of the document when it was added — used to fill fields
+    /// in, to write the plain-language summary, and to make the contents
+    /// searchable. Capped, and encrypted with everything else.
+    var extractedText: String?
+    /// How many pages the scanner captured, when it came from the camera.
+    var pageCount: Int?
 
-    init(id: UUID = UUID(), filename: String, typeIdentifier: String, byteCount: Int, addedAt: Date = Date()) {
+    static let maximumExtractedCharacters = 6000
+
+    init(
+        id: UUID = UUID(),
+        filename: String,
+        typeIdentifier: String,
+        byteCount: Int,
+        addedAt: Date = Date(),
+        extractedText: String? = nil,
+        pageCount: Int? = nil
+    ) {
         self.id = id
         self.filename = filename
         self.typeIdentifier = typeIdentifier
         self.byteCount = byteCount
         self.addedAt = addedAt
+        self.extractedText = extractedText
+        self.pageCount = pageCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        filename = (try? container.decode(String.self, forKey: .filename)) ?? "Attachment"
+        typeIdentifier = (try? container.decode(String.self, forKey: .typeIdentifier)) ?? "public.data"
+        byteCount = (try? container.decode(Int.self, forKey: .byteCount)) ?? 0
+        addedAt = (try? container.decode(Date.self, forKey: .addedAt)) ?? Date()
+        extractedText = try? container.decodeIfPresent(String.self, forKey: .extractedText)
+        pageCount = try? container.decodeIfPresent(Int.self, forKey: .pageCount)
     }
 
     private var contentType: UTType? { UTType(typeIdentifier) }
@@ -185,6 +214,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
         haystack.append(contentsOf: fields.map(\.label))
         haystack.append(contentsOf: fields.map(\.value))
         haystack.append(contentsOf: attachments.map(\.filename))
+        haystack.append(contentsOf: attachments.compactMap(\.extractedText))
         haystack.append(contentsOf: tags)
         return haystack.contains {
             $0.folding(options: .diacriticInsensitive, locale: .current).lowercased().contains(needle)

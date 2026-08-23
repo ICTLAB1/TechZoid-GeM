@@ -31,6 +31,10 @@ struct ItemDetailView: View {
             VStack(alignment: .leading, spacing: 22) {
                 header(for: item)
 
+                if let summary = BenefitSummary.build(for: item), !summary.isEmpty {
+                    BenefitSummaryCard(item: item, summary: summary)
+                }
+
                 if !item.filledFields.isEmpty {
                     CardSection(title: "Details") {
                         let fields = item.filledFields
@@ -99,7 +103,7 @@ struct ItemDetailView: View {
                 CardSection(
                     title: "Documents",
                     footnote: item.attachments.isEmpty
-                        ? "Photos of policy papers, a PDF statement, a picture of the card — encrypted the same way as everything else."
+                        ? "Scan the policy papers, or add a PDF you already have. Vault reads it on the phone and fills in what it can."
                         : nil
                 ) {
                     if !item.attachments.isEmpty {

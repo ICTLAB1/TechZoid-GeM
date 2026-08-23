@@ -325,21 +325,141 @@ final class VaultStore: ObservableObject {
 
     /// Encrypts the bytes, files them against the item, and queues the upload.
     @discardableResult
-    func addAttachment(data: Data, filename: String, typeIdentifier: String, to item: VaultItem) throws -> ItemAttachment {
+    func addAttachment(
+        data: Data,
+        filename: String,
+        typeIdentifier: String,
+        to item: VaultItem,
+        extractedText: String? = nil,
+        pageCount: Int? = nil
+    ) throws -> ItemAttachment {
         guard let dataKey else { throw VaultKeyManager.Failure.noKeyMaterial }
         let type = UTType(typeIdentifier) ?? .data
         let prepared = try AttachmentStore.prepare(data: data, filename: filename, type: type)
         try AttachmentStore.store(data: prepared.data, id: prepared.attachment.id, key: dataKey)
 
-        var updated = item
-        updated.attachments.append(prepared.attachment)
-        updated.record(ItemEvent(kind: .attachmentAdded, deviceName: currentDeviceName, detail: prepared.attachment.filename))
-        if !file.pendingAttachmentIDs.contains(prepared.attachment.id.uuidString) {
-            file.pendingAttachmentIDs.append(prepared.attachment.id.uuidString)
+        var attachment = prepared.attachment
+        attachment.extractedText = extractedText.map(TextRecognizer.capped)
+        attachment.pageCount = pageCount
+
+        // Re-read: an earlier file in the same batch may already have changed it.
+        var updated = self.item(id: item.id) ?? item
+        updated.attachments.append(attachment)
+        updated.record(ItemEvent(kind: .attachmentAdded, deviceName: currentDeviceName, detail: attachment.filename))
+        if !file.pendingAttachmentIDs.contains(attachment.id.uuidString) {
+            file.pendingAttachmentIDs.append(attachment.id.uuidString)
         }
         save(updated)
         attachmentRevision += 1
-        return prepared.attachment
+        return attachment
+    }
+
+    /// What happened when a document's contents were matched against an entry.
+    struct AutoFillOutcome {
+        /// Written straight in, because the field was empty and the match was confident.
+        var applied: [ExtractedField] = []
+        /// Found, but the field already holds something different — the user decides.
+        var conflicts: [ExtractedField] = []
+        /// Found, but not confidently enough to write without being asked.
+        var uncertain: [ExtractedField] = []
+        /// Field values as they were before, so the whole thing can be undone.
+        var previousValues: [String: String] = [:]
+        var itemID: UUID?
+
+        var needsReview: [ExtractedField] { conflicts + uncertain }
+        var isEmpty: Bool { applied.isEmpty && conflicts.isEmpty && uncertain.isEmpty }
+    }
+
+    /// Fills in what a document says.
+    ///
+    /// The rule that keeps this safe: a value is only written on its own when
+    /// the field is **empty** and the match is confident. Anything that would
+    /// overwrite what you typed is handed back for review, never applied
+    /// quietly — and everything applied can be undone in one tap.
+    @discardableResult
+    func autoFill(_ candidates: [ExtractedField], into itemID: UUID) -> AutoFillOutcome {
+        var outcome = AutoFillOutcome()
+        outcome.itemID = itemID
+        guard var target = item(id: itemID) else { return outcome }
+
+        for candidate in candidates {
+            let existing = target.fields.first { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }
+
+            if let existing, !existing.isEmpty {
+                if existing.value.trimmingCharacters(in: .whitespaces) != candidate.value.trimmingCharacters(in: .whitespaces) {
+                    outcome.conflicts.append(candidate)
+                }
+                continue
+            }
+            guard candidate.confidence >= DocumentFieldExtractor.autoFillThreshold else {
+                outcome.uncertain.append(candidate)
+                continue
+            }
+
+            outcome.previousValues[candidate.label] = existing?.value ?? ""
+            apply(candidate, to: &target)
+            outcome.applied.append(candidate)
+        }
+
+        guard !outcome.applied.isEmpty else { return outcome }
+
+        target.record(ItemEvent(
+            kind: .edited,
+            deviceName: currentDeviceName,
+            detail: "Filled from document: " + outcome.applied.map(\.label).joined(separator: ", ")
+        ))
+        save(target)
+        return outcome
+    }
+
+    /// Applies a value the user picked out of the review sheet.
+    func applyExtracted(_ fields: [ExtractedField], to itemID: UUID) {
+        guard var target = item(id: itemID), !fields.isEmpty else { return }
+        for field in fields { apply(field, to: &target) }
+        target.record(ItemEvent(
+            kind: .edited,
+            deviceName: currentDeviceName,
+            detail: "Filled from document: " + fields.map(\.label).joined(separator: ", ")
+        ))
+        save(target)
+    }
+
+    /// Puts an entry back the way it was before a document filled it in.
+    func undoAutoFill(_ outcome: AutoFillOutcome) {
+        guard let itemID = outcome.itemID, var target = item(id: itemID) else { return }
+        for (label, previous) in outcome.previousValues {
+            guard let index = target.fields.firstIndex(where: { $0.label.caseInsensitiveCompare(label) == .orderedSame }) else { continue }
+            target.fields[index].value = previous
+        }
+        target.record(ItemEvent(kind: .edited, deviceName: currentDeviceName, detail: "Undid the document fill"))
+        save(target)
+    }
+
+    private func apply(_ candidate: ExtractedField, to target: inout VaultItem) {
+        if let index = target.fields.firstIndex(where: { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }) {
+            target.fields[index].value = candidate.value
+        } else {
+            // A label the template doesn't carry still deserves a home.
+            let kind = CategoryTemplates.fields(for: target.category)
+                .first { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }?.kind ?? .text
+            target.fields.append(ItemField(label: candidate.label, value: candidate.value, kind: kind))
+        }
+
+        // Keep the identifying line in step with what was just learned.
+        let institution = CategoryTemplates.institutionField(for: target.category)
+        if candidate.label.caseInsensitiveCompare(institution) == .orderedSame, target.subtitle.isEmpty {
+            target.subtitle = candidate.value
+        }
+        if target.title.trimmingCharacters(in: .whitespaces).isEmpty, candidate.confidence >= 0.8, !candidate.value.isEmpty {
+            target.title = candidate.value
+        }
+    }
+
+    /// Every document in the vault, newest first, for the documents library.
+    func allDocuments() -> [(item: VaultItem, attachment: ItemAttachment)] {
+        items
+            .flatMap { item in item.attachments.map { (item: item, attachment: $0) } }
+            .sorted { $0.attachment.addedAt > $1.attachment.addedAt }
     }
 
     func removeAttachment(_ attachment: ItemAttachment, from item: VaultItem) {
