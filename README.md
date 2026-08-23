@@ -166,7 +166,7 @@ You need a Mac with **Xcode 16+** and your paid Apple Developer account.
 ### 1. Open and set your identifiers
 
 ```bash
-open ios/FamilyVault/FamilyVault.xcodeproj
+open FamilyVault.xcodeproj
 ```
 
 Select the **FamilyVault** target → **Signing & Capabilities**:
