@@ -11,6 +11,9 @@ struct ItemDetailView: View {
     @State private var confirmingDelete = false
     @State private var viewingAttachment: ItemAttachment?
     @State private var attachmentPendingRemoval: ItemAttachment?
+    @State private var isRecordingPayment = false
+    @State private var showingAllHistory = false
+    @State private var paymentPendingRemoval: PaymentRecord?
 
     var body: some View {
         Group {
@@ -66,6 +69,30 @@ struct ItemDetailView: View {
                             Spacer()
                         }
                         .padding(16)
+
+                        if isPayable(item) {
+                            RowDivider()
+                            Button {
+                                isRecordingPayment = true
+                            } label: {
+                                HStack {
+                                    Label("Mark this one as paid", systemImage: "checkmark.circle")
+                                    Spacer()
+                                }
+                                .padding(16)
+                            }
+                        }
+                    }
+                }
+
+                if !item.payments.isEmpty {
+                    paymentsSection(for: item)
+                }
+
+                if !item.tags.isEmpty {
+                    CardSection(title: "Tags") {
+                        TagWrap(tags: item.tags)
+                            .padding(16)
                     }
                 }
 
@@ -94,6 +121,10 @@ struct ItemDetailView: View {
                             .textSelection(.enabled)
                             .padding(16)
                     }
+                }
+
+                if !item.history.isEmpty {
+                    historySection(for: item)
                 }
 
                 CardSection(footnote: provenance(for: item)) {
@@ -133,6 +164,22 @@ struct ItemDetailView: View {
         .sheet(item: $viewingAttachment) { attachment in
             AttachmentViewer(attachment: attachment)
         }
+        .sheet(isPresented: $isRecordingPayment) {
+            RecordPaymentView(item: item)
+        }
+        .confirmationDialog(
+            "Remove this payment record?",
+            isPresented: Binding(get: { paymentPendingRemoval != nil }, set: { if !$0 { paymentPendingRemoval = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let payment = paymentPendingRemoval { store.deletePayment(payment, from: item) }
+                paymentPendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { paymentPendingRemoval = nil }
+        } message: {
+            Text("The due date moves back to that instalment.")
+        }
         .confirmationDialog("Delete “\(item.displayTitle)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 store.delete(item)
@@ -157,6 +204,102 @@ struct ItemDetailView: View {
         } message: {
             Text("This deletes the file from both phones straight away.")
         }
+    }
+
+    /// Only the things that actually get paid on a schedule.
+    private func isPayable(_ item: VaultItem) -> Bool {
+        switch item.category {
+        case .loan, .insurance, .card: true
+        default: false
+        }
+    }
+
+    private func paymentsSection(for item: VaultItem) -> some View {
+        CardSection(
+            title: "Payments",
+            footnote: "\(item.payments.count) recorded. Swipe a row to remove one."
+        ) {
+            let payments = item.paymentsByRecency
+            ForEach(Array(payments.prefix(6).enumerated()), id: \.element.id) { index, payment in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(payment.displayAmount ?? "Paid")
+                            .font(.body)
+                        Text(paymentSubtitle(payment))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if !payment.note.isEmpty {
+                            Text(payment.note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button {
+                        paymentPendingRemoval = payment
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(16)
+                if index < min(payments.count, 6) - 1 { RowDivider() }
+            }
+        }
+    }
+
+    private func paymentSubtitle(_ payment: PaymentRecord) -> String {
+        var parts = ["Paid \(payment.paidOn.formatted(date: .abbreviated, time: .omitted))"]
+        if let due = payment.dueDate {
+            parts.append("for \(due.formatted(date: .abbreviated, time: .omitted))")
+        }
+        if !payment.recordedBy.isEmpty { parts.append("on \(payment.recordedBy)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func historySection(for item: VaultItem) -> some View {
+        let events = item.recentHistory
+        let shown = showingAllHistory ? events : Array(events.prefix(4))
+
+        return CardSection(title: "History") {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, event in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: event.kind.icon)
+                        .foregroundStyle(item.category.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.summary)
+                            .font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(eventAttribution(event))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+                if index < shown.count - 1 { RowDivider() }
+            }
+
+            if events.count > 4 {
+                RowDivider()
+                Button {
+                    withAnimation { showingAllHistory.toggle() }
+                } label: {
+                    HStack {
+                        Text(showingAllHistory ? "Show less" : "Show all \(events.count)")
+                        Spacer()
+                    }
+                    .padding(16)
+                }
+            }
+        }
+    }
+
+    private func eventAttribution(_ event: ItemEvent) -> String {
+        var parts = [event.at.formatted(date: .abbreviated, time: .shortened)]
+        if !event.deviceName.isEmpty { parts.append(event.deviceName) }
+        return parts.joined(separator: " · ")
     }
 
     private func header(for item: VaultItem) -> some View {

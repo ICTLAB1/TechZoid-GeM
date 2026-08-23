@@ -25,6 +25,11 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: session.isPrivacyShieldUp)
+        .alert("This iPhone's copy was erased", isPresented: $session.didWipeAfterFailures) {
+            Button("OK", role: .cancel) { session.didWipeAfterFailures = false }
+        } message: {
+            Text("Too many wrong passphrases. Nothing is lost — your partner's phone still has everything, and you can set this one up again from a fresh invitation.")
+        }
         .alert(
             "Something went wrong",
             isPresented: Binding(

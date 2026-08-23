@@ -99,6 +99,7 @@ struct AttachmentViewer: View {
 
     @State private var data: Data?
     @State private var loadError: String?
+    @State private var exported: BackupFile?
 
     var body: some View {
         NavigationStack {
@@ -127,6 +128,18 @@ struct AttachmentViewer: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        exportForSharing()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(data == nil)
+                    .accessibilityLabel("Share this document")
+                }
+            }
+            .sheet(item: $exported) { file in
+                ShareSheet(activityItems: [file.url])
             }
         }
         .task {
@@ -135,6 +148,21 @@ struct AttachmentViewer: View {
             } catch {
                 loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
+        }
+    }
+
+    /// Sharing needs a real file, so a decrypted copy goes to the temporary
+    /// directory under complete file protection and is handed straight to the
+    /// share sheet. It is the one moment plaintext touches disk, and only
+    /// because the user explicitly asked to send the document somewhere.
+    private func exportForSharing() {
+        guard let data else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(attachment.filename)
+        do {
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            exported = BackupFile(url: url)
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 }

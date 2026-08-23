@@ -101,7 +101,7 @@ struct FieldRow: View {
     var requireBiometricsToReveal: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(field.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -111,6 +111,10 @@ struct FieldRow: View {
                 clipboardClearSeconds: clipboardClearSeconds,
                 requireBiometricsToReveal: requireBiometricsToReveal
             )
+            let actions = FieldAction.actions(for: field)
+            if !actions.isEmpty {
+                FieldActionBar(actions: actions)
+            }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 16)

@@ -97,6 +97,14 @@ struct ItemEditorView: View {
                 }
 
                 Section {
+                    TagEditor(tags: $item.tags, suggestions: store.allTags)
+                } header: {
+                    Text("Tags")
+                } footer: {
+                    Text("Free-form labels that cut across categories — “tax saving”, “Dad”, “review in April”.")
+                }
+
+                Section {
                     Toggle("Pin to home screen", isOn: $item.isFavourite)
                 }
 
@@ -194,6 +202,9 @@ struct ItemEditorView: View {
         toSave.title = toSave.title.trimmingCharacters(in: .whitespacesAndNewlines)
         toSave.subtitle = toSave.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
         toSave.holder = toSave.holder.trimmingCharacters(in: .whitespacesAndNewlines)
+        toSave.tags = toSave.tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
         // A blank subtitle is filled in from the field that best identifies it.
         if toSave.subtitle.isEmpty {

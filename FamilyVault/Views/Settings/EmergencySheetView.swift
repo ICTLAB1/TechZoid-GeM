@@ -62,7 +62,7 @@ struct EmergencySheetView: View {
         .navigationTitle("Emergency sheet")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $generated) { file in
-            ActivityView(activityItems: [file.url])
+            ShareSheet(activityItems: [file.url])
         }
         .alert("Emergency sheet", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }

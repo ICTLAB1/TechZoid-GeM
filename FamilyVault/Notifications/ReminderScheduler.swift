@@ -120,7 +120,11 @@ final class ReminderScheduler: ObservableObject {
                 limit: Self.maximumPerItem
             )
 
+            let settled = item.lastPaidDueDate.map { Calendar.current.startOfDay(for: $0) }
+
             for due in dueDates {
+                // An instalment already marked paid shouldn't ring.
+                if let settled, Calendar.current.startOfDay(for: due) <= settled { continue }
                 guard let fireDate = fireDate(due: due, leadDays: item.reminderLeadDays), fireDate > now else { continue }
                 occurrences.append(Occurrence(item: item, dueDate: due, fireDate: fireDate))
             }

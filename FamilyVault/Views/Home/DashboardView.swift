@@ -3,6 +3,8 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var store: VaultStore
     @EnvironmentObject private var session: VaultSession
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var reminders: ReminderScheduler
 
     @State private var newItemCategory: ItemCategory?
     @State private var showingCategoryPicker = false
@@ -14,6 +16,10 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     SyncStatusBar()
+
+                    if !gettingStartedComplete {
+                        GettingStartedCard(onAddEntry: { showingCategoryPicker = true })
+                    }
 
                     if !store.summary.isEmpty {
                         summarySection
@@ -32,6 +38,8 @@ struct DashboardView: View {
                     }
 
                     categoriesSection
+
+                    toolsSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -70,6 +78,65 @@ struct DashboardView: View {
     }
 
     // MARK: - Sections
+
+    private var gettingStartedComplete: Bool {
+        !store.items.isEmpty && store.devices.count >= 2 && settings.remindersEnabled && reminders.isAuthorized
+    }
+
+    /// The cross-cutting views — the ones that answer a question rather than
+    /// hold a record.
+    private var toolsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("BROWSE BY")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.6)
+
+            VStack(spacing: 0) {
+                toolRow("Year ahead", "What's due, month by month", "calendar", YearAheadView())
+                RowDivider()
+                toolRow("Important numbers", "Every helpline and agent, tap to call", "phone.fill", ContactsView())
+                RowDivider()
+                toolRow("Nominees", "Who inherits what, and what has nobody", "person.2.fill", NomineesView())
+                if !store.allTags.isEmpty {
+                    RowDivider()
+                    toolRow("Tags", store.allTags.prefix(3).joined(separator: ", "), "tag.fill", TagsView())
+                }
+                RowDivider()
+                toolRow("Recent activity", "What changed, on either phone", "clock.arrow.circlepath", ActivityView())
+            }
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+        }
+    }
+
+    private func toolRow<Destination: View>(_ title: String, _ detail: String, _ icon: String, _ destination: Destination) -> some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.callout)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
     private var urgentFindings: [HealthFinding] {
         store.healthFindings.filter { $0.severity != .suggestion }

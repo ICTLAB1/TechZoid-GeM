@@ -55,7 +55,7 @@ struct BackupView: View {
         .navigationTitle("Backup")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $exportedFile) { file in
-            ActivityView(activityItems: [file.url])
+            ShareSheet(activityItems: [file.url])
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.data, .json], allowsMultipleSelection: false) { result in
             switch result {
@@ -158,7 +158,7 @@ struct BackupFile: Identifiable {
 
 /// Plain UIActivityViewController — the file goes wherever the user chooses
 /// (AirDrop to the other phone, Files, a printer).
-struct ActivityView: UIViewControllerRepresentable {
+struct ShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

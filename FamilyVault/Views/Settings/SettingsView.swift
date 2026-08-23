@@ -44,7 +44,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Security") {
+                Section {
                     Toggle(isOn: Binding(
                         get: { settings.biometricsEnabled },
                         set: { session.setBiometricsEnabled($0) }
@@ -78,6 +78,20 @@ struct SettingsView: View {
                     } label: {
                         Label("Change master passphrase", systemImage: "key.horizontal")
                     }
+
+                    Picker(selection: $settings.wipeAfterFailedAttempts) {
+                        ForEach(AppSettings.wipeAttemptChoices, id: \.self) { attempts in
+                            Text(AppSettings.wipeAttemptsLabel(attempts)).tag(attempts)
+                        }
+                    } label: {
+                        Label("Erase this copy", systemImage: "exclamationmark.shield")
+                    }
+                } header: {
+                    Text("Security")
+                } footer: {
+                    Text(settings.wipeAfterFailedAttempts == 0
+                         ? "Wrong passphrases are simply refused, however many times."
+                         : "After \(settings.wipeAfterFailedAttempts) wrong passphrases this iPhone erases its copy of the vault. The other phone keeps everything, and you can set this one up again from the invitation.")
                 }
 
                 Section {
@@ -104,6 +118,30 @@ struct SettingsView: View {
                         SummaryView()
                     } label: {
                         Label("At a glance", systemImage: "chart.pie")
+                    }
+
+                    NavigationLink {
+                        YearAheadView()
+                    } label: {
+                        Label("Year ahead", systemImage: "calendar")
+                    }
+
+                    NavigationLink {
+                        NomineesView()
+                    } label: {
+                        Label("Nominees", systemImage: "person.2.fill")
+                    }
+
+                    NavigationLink {
+                        ContactsView()
+                    } label: {
+                        Label("Important numbers", systemImage: "phone.fill")
+                    }
+
+                    NavigationLink {
+                        ActivityView()
+                    } label: {
+                        Label("Recent activity", systemImage: "clock.arrow.circlepath")
                     }
                 } header: {
                     Text("Review")
@@ -137,6 +175,12 @@ struct SettingsView: View {
                         EmergencySheetView()
                     } label: {
                         Label("Printable emergency sheet", systemImage: "doc.richtext")
+                    }
+
+                    NavigationLink {
+                        SpreadsheetView()
+                    } label: {
+                        Label("Import or export a spreadsheet", systemImage: "tablecells")
                     }
 
                     NavigationLink {

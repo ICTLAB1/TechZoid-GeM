@@ -106,6 +106,56 @@ time you open it. A handful of monthly EMIs covers well over a year ahead.
 Reminders are marked time-sensitive; to have iOS honour that during a Focus,
 add the **Time Sensitive Notifications** capability in Xcode.
 
+### Payments
+
+Loans, policies and cards get a **Mark this one as paid** button on the due
+card. Recording a payment logs the amount, the date and which phone entered it
+— and the reminder moves on to the next instalment by itself, so nothing has to
+be re-dated by hand. The entry keeps its payment history; removing a record
+puts the due date back.
+
+### Cross-cutting views
+
+Records are filed by category, but the useful questions cut across it:
+
+- **Year ahead** — every premium, EMI, bill and maturity for the next twelve
+  months, grouped by month, with each month's total where the amounts are
+  known. The answer to "what does the year cost?"
+- **Important numbers** — every phone number in the vault on one screen, tap to
+  call, message or WhatsApp. The moment you need a claim helpline is the moment
+  you least want to be hunting for it.
+- **Nominees** — who inherits what, roughly how much, and — listed first —
+  **what has nobody named on it**. A missing nominee is the most expensive
+  blank in this app: it turns a claim into a court matter.
+- **Tags** — free-form labels that ignore categories: "tax saving", "Dad",
+  "review in April".
+- **Recent activity** — what changed, when, and on which phone. In a vault two
+  people share, this is how you notice your partner rotated the net-banking
+  password without being told.
+
+Phone, email and website fields are tappable everywhere they appear — a
+helpline you have to copy-paste into the dialler is a helpline you won't use.
+
+### History
+
+Every entry keeps a log: created, edited, paid, document added, deleted,
+restored — each stamped with the time and the phone it came from. Edits record
+*which fields* moved, never their values, so the log never becomes a second
+copy of the secrets.
+
+### Getting things in (and out)
+
+- **Spreadsheet import** — point it at a CSV whose first row is column names
+  and each row becomes an entry. Columns matching a category's own fields
+  ("Policy number", "CVV") arrive already marked secret, and anything else that
+  looks sensitive is marked secret too. Retyping forty policies by thumb is why
+  apps like this get abandoned in week one.
+- **Spreadsheet export** — the same in reverse, with secrets masked by default.
+  It's plain text with no password on it, so the unmasked option carries a
+  warning and the encrypted backup remains the copy worth keeping.
+- **Documents can be shared** out of the viewer — a policy PDF you can't send
+  to the insurer isn't much use.
+
 ### Finding things
 
 One search box across every entry — insurer, nominee, the last four digits of a
@@ -127,6 +177,13 @@ to any secret field.
   default), so a card number doesn't sit there for the rest of the day.
 - The app blurs itself in the app switcher and auto-locks when it leaves the
   foreground.
+
+### Getting started
+
+The home screen carries a three-step checklist — add an entry, invite your
+partner, turn on notifications — and removes itself once all three are done.
+Those are the three things the vault is useless without, and each is easy to
+not get round to.
 
 ### Two devices, hard limit
 
@@ -179,6 +236,9 @@ random 256-bit data key ◀──── AES-256-GCM unwrap ───────
 - The app auto-locks when it leaves the foreground (configurable, default one
   minute) and blurs itself in the app switcher so secrets don't land in a
   snapshot.
+- Optionally, **this iPhone erases its own copy after N wrong passphrases**
+  (off by default). Nothing is lost when it fires — the other phone still has
+  everything, and this one can be set up again from a fresh invitation.
 - Sharing uses Apple's own CloudKit invitation, tied to your wife's Apple
   Account — not a link anyone could forward. Even so, the invitation alone is
   useless: it grants access to ciphertext.
@@ -288,9 +348,15 @@ deletions).
   the key somewhere, which is exactly what this app exists to avoid. Keep an
   exported backup instead.
 - **No third device, ever** — including an iPad or a Mac.
-- **No home-screen widget or Shortcuts actions.** A widget would have to render
-  while the vault is locked, and the key is not available then; a widget that
-  could show your renewals on the lock screen would defeat the lock.
+- **No home-screen widget, Shortcuts actions or Siri.** A widget would have to
+  render while the vault is locked, and the key isn't available then; one that
+  could show your balances on the lock screen would defeat the lock. Same
+  reasoning rules out exposing entries to Siri or Spotlight.
+- **No auto-fill into Safari or other apps.** It would mean running an
+  extension outside the app's own lock, which is a materially larger attack
+  surface than copy-and-paste with an expiring clipboard.
+- **No OCR auto-fill from a scanned policy.** Worth having one day; it would
+  need on-device Vision only, and was left out rather than half-built.
 - **No bank or account connections.** Every figure here is one you typed. That
   is why nothing in this app can move money.
 - **No analytics, no crash reporting, no network calls of any kind** other than

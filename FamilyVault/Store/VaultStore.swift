@@ -184,13 +184,47 @@ final class VaultStore: ObservableObject {
     func save(_ item: VaultItem) {
         var updated = item
         updated.touch(on: currentDeviceName)
+
         if let index = file.items.firstIndex(where: { $0.id == updated.id }) {
+            // Record the shape of the change — which fields moved, never their
+            // values — so the log can't become a second copy of the secrets.
+            if let event = changeEvent(from: file.items[index], to: updated) {
+                updated.record(event)
+            }
             file.items[index] = updated
         } else {
+            updated.record(ItemEvent(kind: .created, deviceName: currentDeviceName))
             file.items.append(updated)
         }
         markPending(itemID: updated.id.uuidString)
         persistAndSync()
+    }
+
+    private func changeEvent(from old: VaultItem, to new: VaultItem) -> ItemEvent? {
+        var changes: [String] = []
+
+        if old.title != new.title { changes.append("Name") }
+        if old.holder != new.holder { changes.append("Belongs to") }
+        if old.notes != new.notes { changes.append("Notes") }
+        if old.tags != new.tags { changes.append("Tags") }
+        if old.reminderDate != new.reminderDate || old.reminderRepeat != new.reminderRepeat {
+            changes.append(new.category.reminderLabel)
+        }
+
+        let oldFields = Dictionary(old.fields.map { ($0.label, $0.value) }, uniquingKeysWith: { first, _ in first })
+        let newFields = Dictionary(new.fields.map { ($0.label, $0.value) }, uniquingKeysWith: { first, _ in first })
+
+        for (label, value) in newFields where oldFields[label] != value {
+            changes.append(label)
+        }
+        for label in oldFields.keys where newFields[label] == nil {
+            changes.append("\(label) (removed)")
+        }
+
+        guard !changes.isEmpty else { return nil }
+        let listed = changes.prefix(4).joined(separator: ", ")
+        let suffix = changes.count > 4 ? " and \(changes.count - 4) more" : ""
+        return ItemEvent(kind: .edited, deviceName: currentDeviceName, detail: listed + suffix)
     }
 
     /// Moves an entry to Recently Deleted. Its contents are kept — that is what
@@ -201,6 +235,7 @@ final class VaultStore: ObservableObject {
         file.items[index].deletedAt = Date()
         file.items[index].reminderDate = nil
         file.items[index].isFavourite = false
+        file.items[index].record(ItemEvent(kind: .deleted, deviceName: currentDeviceName))
         file.items[index].touch(on: currentDeviceName)
         markPending(itemID: item.id.uuidString)
         persistAndSync()
@@ -210,6 +245,7 @@ final class VaultStore: ObservableObject {
         guard let index = file.items.firstIndex(where: { $0.id == item.id }) else { return }
         file.items[index].isDeleted = false
         file.items[index].deletedAt = nil
+        file.items[index].record(ItemEvent(kind: .restored, deviceName: currentDeviceName))
         file.items[index].touch(on: currentDeviceName)
         markPending(itemID: item.id.uuidString)
         persistAndSync()
@@ -297,6 +333,7 @@ final class VaultStore: ObservableObject {
 
         var updated = item
         updated.attachments.append(prepared.attachment)
+        updated.record(ItemEvent(kind: .attachmentAdded, deviceName: currentDeviceName, detail: prepared.attachment.filename))
         if !file.pendingAttachmentIDs.contains(prepared.attachment.id.uuidString) {
             file.pendingAttachmentIDs.append(prepared.attachment.id.uuidString)
         }
@@ -311,6 +348,7 @@ final class VaultStore: ObservableObject {
 
         var updated = item
         updated.attachments.removeAll { $0.id == attachment.id }
+        updated.record(ItemEvent(kind: .attachmentRemoved, deviceName: currentDeviceName, detail: attachment.filename))
         save(updated)
         attachmentRevision += 1
     }
@@ -348,6 +386,124 @@ final class VaultStore: ObservableObject {
             file.pendingAttachmentIDs.append(id.uuidString)
         }
         attachmentRevision += 1
+    }
+
+    // MARK: - Payments
+
+    /// Settles the instalment an entry is currently pointing at. The next due
+    /// date takes over on its own, so nothing has to be re-dated by hand.
+    func recordPayment(for item: VaultItem, amount: String, paidOn: Date, note: String) {
+        var updated = item
+        let due = item.nextDueDate
+
+        let record = PaymentRecord(
+            dueDate: due,
+            paidOn: paidOn,
+            amount: amount,
+            note: note,
+            recordedBy: currentDeviceName
+        )
+        updated.payments.append(record)
+        if item.reminderRepeat != .never { updated.lastPaidDueDate = due }
+
+        var detail = record.displayAmount ?? ""
+        if let due { detail += detail.isEmpty ? "for \(due.formatted(date: .abbreviated, time: .omitted))" : " for \(due.formatted(date: .abbreviated, time: .omitted))" }
+        updated.record(ItemEvent(kind: .payment, deviceName: currentDeviceName, detail: detail))
+
+        save(updated)
+    }
+
+    func deletePayment(_ payment: PaymentRecord, from item: VaultItem) {
+        var updated = item
+        updated.payments.removeAll { $0.id == payment.id }
+        // Re-point at the latest instalment still marked settled.
+        updated.lastPaidDueDate = updated.payments.compactMap(\.dueDate).max()
+        save(updated)
+    }
+
+    /// The default amount to offer when recording a payment.
+    func suggestedPaymentAmount(for item: VaultItem) -> String {
+        guard let label = CategoryTemplates.amountField(for: item.category) else { return "" }
+        return item.value(forLabel: label) ?? ""
+    }
+
+    // MARK: - Tags
+
+    var allTags: [String] {
+        let tags = items.flatMap(\.tags).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return Array(Set(tags)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func items(taggedWith tag: String) -> [VaultItem] {
+        items.filter { item in item.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame } }
+            .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+    }
+
+    // MARK: - Aggregate views
+
+    /// Everything that happened across the vault, newest first — the answer to
+    /// "what did the other phone change while I wasn't looking?"
+    func recentActivity(limit: Int = 100) -> [ActivityEntry] {
+        var entries: [ActivityEntry] = []
+        for item in file.items {
+            for event in item.history {
+                entries.append(ActivityEntry(item: item, event: event))
+            }
+        }
+        return entries.sorted { $0.event.at > $1.event.at }.prefix(limit).map { $0 }
+    }
+
+    /// Every phone number worth having in a hurry, gathered from the entries
+    /// that carry one.
+    func contactCards() -> [ContactCard] {
+        var cards: [ContactCard] = []
+        for item in items {
+            for field in item.fields where field.kind == .phone && !field.isEmpty {
+                cards.append(ContactCard(
+                    itemID: item.id,
+                    category: item.category,
+                    label: field.label,
+                    number: field.value,
+                    belongsTo: [item.subtitle, item.displayTitle].filter { !$0.isEmpty }.joined(separator: " · ")
+                ))
+            }
+        }
+        return cards.sorted {
+            $0.belongsTo.localizedCaseInsensitiveCompare($1.belongsTo) == .orderedAscending
+        }
+    }
+
+    /// Who is nominated on what, and — more usefully — what has nobody.
+    func nomineeGroups() -> (named: [String: [VaultItem]], missing: [VaultItem]) {
+        var named: [String: [VaultItem]] = [:]
+        var missing: [VaultItem] = []
+        let relevant: Set<ItemCategory> = [.insurance, .investment, .bankAccount, .property]
+
+        for item in items where relevant.contains(item.category) {
+            if let nominee = item.value(forLabel: "Nominee")?.trimmingCharacters(in: .whitespaces), !nominee.isEmpty {
+                named[nominee, default: []].append(item)
+            } else {
+                missing.append(item)
+            }
+        }
+        return (named, missing)
+    }
+
+    /// Upcoming dues grouped by the month they land in.
+    func yearAhead(months: Int = 12) -> [DueMonth] {
+        let calendar = Calendar.current
+        guard let horizon = calendar.date(byAdding: .month, value: months, to: Date()) else { return [] }
+
+        var buckets: [Date: [VaultItem]] = [:]
+        for item in items {
+            guard let due = item.nextDueDate, due <= horizon else { continue }
+            let key = calendar.date(from: calendar.dateComponents([.year, .month], from: due)) ?? due
+            buckets[key, default: []].append(item)
+        }
+
+        return buckets
+            .map { DueMonth(month: $0.key, items: $0.value.sorted { ($0.nextDueDate ?? .distantFuture) < ($1.nextDueDate ?? .distantFuture) }) }
+            .sorted { $0.month < $1.month }
     }
 
     // MARK: - Passphrase rotation

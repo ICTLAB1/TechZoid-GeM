@@ -14,6 +14,8 @@ final class AppSettings: ObservableObject {
         static let requireBiometricsToReveal = "settings.requireBiometricsToReveal"
         static let lastHolder = "settings.lastHolder"
         static let detailedNotifications = "settings.detailedNotifications"
+        static let wipeAfterFailedAttempts = "settings.wipeAfterFailedAttempts"
+        static let failedAttempts = "settings.failedAttempts"
     }
 
     static let autoLockChoices: [Int] = [0, 30, 60, 300, 900]
@@ -49,6 +51,16 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(detailedNotifications, forKey: Key.detailedNotifications) }
     }
 
+    /// 0 = never. Otherwise the vault erases itself from this iPhone after
+    /// this many wrong passphrases — the other phone keeps everything.
+    @Published var wipeAfterFailedAttempts: Int {
+        didSet { defaults.set(wipeAfterFailedAttempts, forKey: Key.wipeAfterFailedAttempts) }
+    }
+
+    @Published var failedAttempts: Int {
+        didSet { defaults.set(failedAttempts, forKey: Key.failedAttempts) }
+    }
+
     /// Pre-fills "belongs to" with whatever was used last.
     @Published var lastHolder: String {
         didSet { defaults.set(lastHolder, forKey: Key.lastHolder) }
@@ -66,7 +78,9 @@ final class AppSettings: ObservableObject {
             Key.hasCompletedSetup: false,
             Key.requireBiometricsToReveal: false,
             Key.lastHolder: "",
-            Key.detailedNotifications: true
+            Key.detailedNotifications: true,
+            Key.wipeAfterFailedAttempts: 0,
+            Key.failedAttempts: 0
         ])
         autoLockSeconds = defaults.integer(forKey: Key.autoLockSeconds)
         biometricsEnabled = defaults.bool(forKey: Key.biometricsEnabled)
@@ -76,6 +90,14 @@ final class AppSettings: ObservableObject {
         requireBiometricsToReveal = defaults.bool(forKey: Key.requireBiometricsToReveal)
         lastHolder = defaults.string(forKey: Key.lastHolder) ?? ""
         detailedNotifications = defaults.bool(forKey: Key.detailedNotifications)
+        wipeAfterFailedAttempts = defaults.integer(forKey: Key.wipeAfterFailedAttempts)
+        failedAttempts = defaults.integer(forKey: Key.failedAttempts)
+    }
+
+    static let wipeAttemptChoices = [0, 5, 10, 20]
+
+    static func wipeAttemptsLabel(_ attempts: Int) -> String {
+        attempts == 0 ? "Never" : "After \(attempts) wrong tries"
     }
 
     static func autoLockLabel(_ seconds: Int) -> String {

@@ -28,6 +28,8 @@ final class VaultSession: ObservableObject {
     @Published private(set) var isWorking = false
     @Published var errorMessage: String?
     @Published private(set) var isPrivacyShieldUp = false
+    /// Set when the vault erased itself here after too many wrong tries.
+    @Published var didWipeAfterFailures = false
 
     let settings: AppSettings
     let store: VaultStore
@@ -112,9 +114,37 @@ final class VaultSession: ObservableObject {
             let key = try await derive { try manager.unwrap(material: material, passphrase: passphrase) }
             try store.open(dataKey: key, material: material)
             dataKey = key
+            settings.failedAttempts = 0
             await finishUnlock(dataKey: key, passphrase: passphrase, deviceName: deviceName)
         } catch {
+            registerFailedAttempt(error)
+        }
+    }
+
+    /// A wrong passphrase is usually a typo, so the count only matters when
+    /// the user has deliberately asked for a limit.
+    private func registerFailedAttempt(_ error: Error) {
+        guard case VaultKeyManager.Failure.wrongPassphrase = error else {
             phase = .locked
+            errorMessage = message(for: error)
+            return
+        }
+
+        settings.failedAttempts += 1
+        let limit = settings.wipeAfterFailedAttempts
+
+        if limit > 0, settings.failedAttempts >= limit {
+            removeVaultFromThisDevice()
+            settings.failedAttempts = 0
+            didWipeAfterFailures = true
+            return
+        }
+
+        phase = .locked
+        if limit > 0 {
+            let left = limit - settings.failedAttempts
+            errorMessage = "That passphrase doesn't unlock this vault. \(left) tr\(left == 1 ? "y" : "ies") left before this iPhone erases its copy."
+        } else {
             errorMessage = message(for: error)
         }
     }

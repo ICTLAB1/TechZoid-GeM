@@ -79,6 +79,12 @@ struct VaultItem: Codable, Identifiable, Hashable {
     var reminderDate: Date?
     var reminderLeadDays: Int
     var reminderRepeat: ReminderRepeat
+    /// The instalment most recently settled, so a paid EMI stops nagging and
+    /// the next one takes over.
+    var lastPaidDueDate: Date?
+    var payments: [PaymentRecord]
+    var tags: [String]
+    var history: [ItemEvent]
     var isFavourite: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -99,6 +105,10 @@ struct VaultItem: Codable, Identifiable, Hashable {
         reminderDate: Date? = nil,
         reminderLeadDays: Int = 7,
         reminderRepeat: ReminderRepeat = .never,
+        lastPaidDueDate: Date? = nil,
+        payments: [PaymentRecord] = [],
+        tags: [String] = [],
+        history: [ItemEvent] = [],
         isFavourite: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -117,6 +127,10 @@ struct VaultItem: Codable, Identifiable, Hashable {
         self.reminderDate = reminderDate
         self.reminderLeadDays = reminderLeadDays
         self.reminderRepeat = reminderRepeat
+        self.lastPaidDueDate = lastPaidDueDate
+        self.payments = payments
+        self.tags = tags
+        self.history = history
         self.isFavourite = isFavourite
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -140,6 +154,10 @@ struct VaultItem: Codable, Identifiable, Hashable {
         reminderDate = try? container.decodeIfPresent(Date.self, forKey: .reminderDate)
         reminderLeadDays = (try? container.decode(Int.self, forKey: .reminderLeadDays)) ?? 7
         reminderRepeat = (try? container.decode(ReminderRepeat.self, forKey: .reminderRepeat)) ?? .never
+        lastPaidDueDate = try? container.decodeIfPresent(Date.self, forKey: .lastPaidDueDate)
+        payments = (try? container.decode([PaymentRecord].self, forKey: .payments)) ?? []
+        tags = (try? container.decode([String].self, forKey: .tags)) ?? []
+        history = (try? container.decode([ItemEvent].self, forKey: .history)) ?? []
         isFavourite = (try? container.decode(Bool.self, forKey: .isFavourite)) ?? false
         createdAt = (try? container.decode(Date.self, forKey: .createdAt)) ?? Date()
         updatedAt = (try? container.decode(Date.self, forKey: .updatedAt)) ?? Date()
@@ -167,6 +185,7 @@ struct VaultItem: Codable, Identifiable, Hashable {
         haystack.append(contentsOf: fields.map(\.label))
         haystack.append(contentsOf: fields.map(\.value))
         haystack.append(contentsOf: attachments.map(\.filename))
+        haystack.append(contentsOf: tags)
         return haystack.contains {
             $0.folding(options: .diacriticInsensitive, locale: .current).lowercased().contains(needle)
         }
@@ -190,10 +209,19 @@ struct VaultItem: Codable, Identifiable, Hashable {
             return reminderDate
         }
 
+        // An instalment that has been paid is settled even if its date has
+        // only just passed, so it must not win the grace window back.
+        let settled = lastPaidDueDate.map { calendar.startOfDay(for: $0) }
+
         var step = 0
         while step < 1200 {
             guard let candidate = calendar.date(byAdding: .month, value: stride * step, to: reminderDate) else { break }
-            if calendar.startOfDay(for: candidate) >= graceFloor { return candidate }
+            let day = calendar.startOfDay(for: candidate)
+            if let settled, day <= settled {
+                step += 1
+                continue
+            }
+            if day >= graceFloor { return candidate }
             step += 1
         }
         return reminderDate
@@ -211,5 +239,24 @@ struct VaultItem: Codable, Identifiable, Hashable {
     mutating func touch(on deviceName: String) {
         updatedAt = Date()
         if !deviceName.isEmpty { lastEditedBy = deviceName }
+    }
+
+    /// History is capped so a long-lived entry can't grow without bound.
+    static let maximumHistoryEntries = 40
+
+    mutating func record(_ event: ItemEvent) {
+        history.append(event)
+        if history.count > Self.maximumHistoryEntries {
+            history.removeFirst(history.count - Self.maximumHistoryEntries)
+        }
+    }
+
+    /// Payments, newest first.
+    var paymentsByRecency: [PaymentRecord] {
+        payments.sorted { $0.paidOn > $1.paidOn }
+    }
+
+    var recentHistory: [ItemEvent] {
+        history.sorted { $0.at > $1.at }
     }
 }
