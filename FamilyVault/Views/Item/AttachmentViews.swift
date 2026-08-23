@@ -205,8 +205,10 @@ struct AttachmentPicker: View {
     @EnvironmentObject private var store: VaultStore
 
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var isPickingPhotos = false
     @State private var isImportingFile = false
     @State private var isScanning = false
+    @State private var isCapturing = false
     @State private var errorMessage: String?
     @State private var progress: String?
 
@@ -223,22 +225,32 @@ struct AttachmentPicker: View {
                     Button {
                         isScanning = true
                     } label: {
-                        Label(isCard ? "Scan card" : "Scan", systemImage: "doc.viewfinder")
+                        Label(isCard ? "Scan card" : "Scan document", systemImage: "doc.viewfinder")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                 }
 
-                PhotosPicker(selection: $photoSelection, maxSelectionCount: 5, matching: .images) {
-                    Label("Photos", systemImage: "photo.on.rectangle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    isImportingFile = true
+                Menu {
+                    if CameraCaptureView.isAvailable {
+                        Button {
+                            isCapturing = true
+                        } label: {
+                            Label("Take a photo", systemImage: "camera")
+                        }
+                    }
+                    Button {
+                        isPickingPhotos = true
+                    } label: {
+                        Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        isImportingFile = true
+                    } label: {
+                        Label("Choose a PDF or file", systemImage: "folder")
+                    }
                 } label: {
-                    Label("Files", systemImage: "folder")
+                    Label("Add", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -265,6 +277,17 @@ struct AttachmentPicker: View {
             )
             .ignoresSafeArea()
         }
+        .fullScreenCover(isPresented: $isCapturing) {
+            CameraCaptureView(
+                onCapture: { image in
+                    isCapturing = false
+                    Task { await handleCapture(image) }
+                },
+                onCancel: { isCapturing = false }
+            )
+            .ignoresSafeArea()
+        }
+        .photosPicker(isPresented: $isPickingPhotos, selection: $photoSelection, maxSelectionCount: 5, matching: .images)
         .onChange(of: photoSelection) { _, selection in
             guard !selection.isEmpty else { return }
             Task { await importPhotos(selection) }
@@ -322,6 +345,24 @@ struct AttachmentPicker: View {
         let name = "Scan \(Date().formatted(date: .abbreviated, time: .omitted)).pdf"
         attach(data: pdf, filename: name, type: UTType.pdf.identifier, text: text, pageCount: pages.count)
         extractAndFill(from: text, documentName: name)
+    }
+
+    /// A photo taken here is stored as a photo. It is still read for text, so
+    /// a snapshot of a policy page can fill fields in — but it stays an image
+    /// rather than being forced into a PDF.
+    private func handleCapture(_ image: UIImage) async {
+        progress = "Adding the photo…"
+        defer { progress = nil }
+
+        guard let data = image.jpegData(compressionQuality: 0.85) else {
+            errorMessage = "That photo couldn't be saved."
+            return
+        }
+
+        let name = "Photo \(Date().formatted(date: .abbreviated, time: .shortened)).jpg"
+        let text = await TextRecognizer.recognize(image) ?? ""
+        attach(data: data, filename: name, type: UTType.jpeg.identifier, text: text, pageCount: nil)
+        if !text.isEmpty { extractAndFill(from: text, documentName: name) }
     }
 
     // MARK: - Picking

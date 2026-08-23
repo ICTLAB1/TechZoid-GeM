@@ -45,9 +45,17 @@ inventing them:
 
 Attach photos and PDFs to any entry — and scan straight from the camera.
 
-- **Scan** uses Apple's document camera: edge detection, perspective
+Four ways in, from the **Scan document** button and the **Add** menu on any entry:
+
+- **Scan document** uses Apple's document camera: edge detection, perspective
   correction, multi-page. The pages become one PDF, compressed to a few
-  hundred KB rather than the 8 MB a raw scan costs.
+  hundred KB rather than the 8 MB a raw scan costs. Right for paperwork.
+- **Take a photo** is the plain camera, with a crop step, and what it saves
+  stays a photo. Right for the things that aren't paperwork — the locker key,
+  a dented bumper for a motor claim, the boundary of a plot.
+- **Choose from Photos** takes up to five images from the camera roll.
+- **Choose a PDF or file** takes a PDF or anything else from Files, iCloud
+  Drive, Google Drive, WhatsApp — wherever the insurer's email put it.
 - **Personal Documents** is its own category for paperwork that belongs to no
   particular account — a degree certificate, the rent agreement, medical
   records.
