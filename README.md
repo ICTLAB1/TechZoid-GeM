@@ -1,0 +1,267 @@
+# Vault — a private financial record book for two iPhones
+
+A native iOS app that keeps bank accounts, cards, insurance policies,
+investments, loans, identity documents and logins in one place, shared between
+exactly two phones — yours and your wife's — and readable by nobody else.
+
+Nothing here is stored on anyone's server. iCloud carries the data between the
+two phones, but only as ciphertext: the key is derived from a master passphrase
+that never leaves your devices, so Apple (or anyone who obtains the iCloud
+account) sees nothing but noise.
+
+---
+
+## What it does
+
+### Records
+
+Nine categories, each with a ready-made form so you fill in blanks instead of
+inventing them:
+
+| Category | Fields it starts with |
+| --- | --- |
+| Bank Accounts | account number, IFSC, branch, customer ID, net-banking and transaction passwords, UPI ID, nominee |
+| Cards | card number, expiry, CVV, PIN, credit limit, statement and due dates, customer care |
+| Insurance | policy number, cover, premium and frequency, start/maturity dates, nominee, agent, claim helpline |
+| Investments | FD/RD/MF/PPF/NPS folio, amount, current value, rate, maturity, nominee |
+| Loans & EMIs | loan account, principal, outstanding, rate, EMI amount and date, tenure |
+| Identity Documents | PAN, Aadhaar, passport, licence — number, issue/expiry, authority |
+| Logins | site, username, password, registered email/mobile, 2FA backup codes |
+| Property & Assets | registration number, purchase value, where the papers are kept, locker details |
+| Secure Notes | anything else |
+
+- Every field can be renamed, removed or added to, and any new field can be
+  marked secret so it stays masked until tapped.
+- **Belongs to** — tag each entry as yours, your wife's, or joint, then filter
+  any list by person with one tap. New entries inherit whichever filter you're
+  looking at.
+- **Pin** the handful you reach for constantly to the top of the home screen.
+- **Sort** any category by name, most recently changed, or what's due next.
+- Each entry records **who changed it last and when** — "last changed 3 Aug on
+  Priya's iPhone" — so a surprise edit has an explanation.
+
+### Documents
+
+Attach photos and PDFs to any entry — the policy paper, a photo of the card,
+last year's premium receipt.
+
+- Added from the camera roll or from Files; photos are downscaled to 2048px
+  before storage so a scan doesn't cost 8 MB of sync.
+- Encrypted with the same key as everything else. What iCloud stores is the
+  ciphertext file, byte for byte.
+- Viewed **inside** the app — PDFs and images are decrypted into memory and
+  rendered from there, so a readable copy never touches the filesystem.
+- 20 MB per file; larger ones are refused rather than silently truncated.
+
+### Knowing what you've got
+
+- **At a glance** — total life and health cover, premiums per year and per
+  month, amount invested vs. current value, outstanding borrowings, monthly EMI
+  outgo, and total credit limit. Built entirely from the amounts you typed;
+  nothing is fetched from any bank. Monthly, quarterly and half-yearly premiums
+  are normalised to a yearly figure so the total means something. Understands
+  "5L" and "1.2 Cr" as well as "500000".
+- **Check-up** — a standing audit that surfaces what quietly rots:
+  - renewals and EMIs that have already lapsed,
+  - anything due in the next 30 days,
+  - cards past (or two months from) their expiry,
+  - identity documents past their validity,
+  - policies, investments and accounts with **no nominee recorded**,
+  - weak passwords, and the same password used across several logins.
+
+### Reminders
+
+Give a policy its renewal date or a loan its EMI date and the app schedules a
+local notification, from a day to a month ahead. The banner deliberately says
+only *"A policy is coming up for renewal"* — never which one — because
+lock-screen text is visible to anyone holding the phone.
+
+### Finding things
+
+One search box across every entry — insurer, nominee, the last four digits of a
+card, an agent's name, even an attachment's filename — plus a scoped search
+inside each category.
+
+### Passwords
+
+A generator built on the system's cryptographic random source, with length,
+capitals, digits, symbols, and an option to avoid look-alike characters
+(l/I/1/O/0) so a password can be read aloud. Reachable from the dice icon next
+to any secret field.
+
+### Handling secrets carefully
+
+- Values stay masked until tapped, and optionally require a **second Face ID
+  check** before they're shown or copied.
+- Copying puts the value on the clipboard with an expiry (45 seconds by
+  default), so a card number doesn't sit there for the rest of the day.
+- The app blurs itself in the app switcher and auto-locks when it leaves the
+  foreground.
+
+### Two devices, hard limit
+
+The vault registers each phone. Once two are registered, a third is refused at
+unlock — even with the invitation **and** the passphrase. Freeing a slot is a
+deliberate act in Settings → Devices, which is also where you rename a phone or
+retire an old one.
+
+### Not losing anything
+
+- **Recently Deleted** — deleting moves an entry to a 30-day holding area that
+  syncs across both phones. Swipe to restore, or destroy it immediately. After
+  30 days it and its documents are erased everywhere.
+- **Encrypted backup** — export every entry *and every attached document* into
+  one password-protected file (AirDrop it, or keep it in a safe). Independent
+  of iCloud, so it is your way back in if the account is ever lost. Restoring
+  merges: anything already in the vault with a newer change date is left alone.
+- **Printable emergency sheet** — a plain PDF summary of what exists and who to
+  call, for a nominee or a safe. Readable without the app or the passphrase.
+  Account numbers print masked (••••3417) by default; the unmasked option
+  carries the warning it deserves.
+
+### Syncing
+
+Changes appear on the other phone on their own, over a silent push. If iCloud
+is unreachable, everything still works offline and syncs when it comes back —
+the home screen says which state you're in, and how many changes are waiting.
+
+## How the secrecy actually works
+
+```
+master passphrase  ──PBKDF2-HMAC-SHA256, 600,000 rounds──▶  wrapping key
+                                                                 │
+random 256-bit data key ◀──── AES-256-GCM unwrap ────────────────┘
+        │
+        ├──▶ every record, sealed with AES-256-GCM, before it is written
+        │
+        ├──▶ local file (vault.enc, iOS complete file protection)
+        └──▶ iCloud record payloads (ciphertext only)
+```
+
+- The **passphrase is never stored, never uploaded, and never recoverable.**
+  Both phones derive the same data key from the same passphrase, which is what
+  lets two people read one vault.
+- iCloud holds three things per record: an opaque ID, a last-changed timestamp
+  (needed to resolve conflicts without decrypting), and the ciphertext blob.
+- The data key is kept in the **Secure Enclave-backed keychain** behind
+  `.userPresence` and `ThisDeviceOnly`, so reading it back *is* the Face ID
+  prompt, and it never travels in a device backup.
+- The app auto-locks when it leaves the foreground (configurable, default one
+  minute) and blurs itself in the app switcher so secrets don't land in a
+  snapshot.
+- Sharing uses Apple's own CloudKit invitation, tied to your wife's Apple
+  Account — not a link anyone could forward. Even so, the invitation alone is
+  useless: it grants access to ciphertext.
+
+The one real consequence: **if you both forget the passphrase, the data is
+gone.** There is no reset, by design. Keep an exported backup, or write the
+passphrase down somewhere physical.
+
+---
+
+## Building and installing it
+
+You need a Mac with **Xcode 16+** and your paid Apple Developer account.
+
+### 1. Open and set your identifiers
+
+```bash
+open ios/FamilyVault/FamilyVault.xcodeproj
+```
+
+Select the **FamilyVault** target → **Signing & Capabilities**:
+
+1. **Team** — pick your developer team.
+2. **Bundle Identifier** — change `com.example.familyvault` to something you
+   own, e.g. `com.abhinavj.vault`.
+3. **iCloud** capability → tick **CloudKit** → **+** to add a container named
+   `iCloud.<your bundle id>` (e.g. `iCloud.com.abhinavj.vault`).
+4. **Push Notifications** capability — add it (used for silent sync nudges).
+5. **Background Modes** capability → tick **Remote notifications**.
+
+Then update the two places the container name is written down:
+
+- `FamilyVault/FamilyVault.entitlements` → `com.apple.developer.icloud-container-identifiers`
+- `FamilyVault/App/FamilyVaultApp.swift` → `AppConfiguration.cloudContainerIdentifier`
+
+Both must match the container you created, exactly.
+
+### 2. Run it on your phone
+
+Plug in your iPhone, pick it as the run destination, and press ⌘R. First launch
+asks you to choose the master passphrase — this is the moment the vault is
+created.
+
+### 3. Publish the CloudKit schema
+
+Development record types are created automatically the first time you save
+something. Before your wife's phone (or a TestFlight build) can use it, promote
+the schema:
+
+1. Add one entry of any kind so the record types exist.
+2. Add an attachment to it too, so the asset record type is created.
+3. Open [CloudKit Console](https://icloud.developer.apple.com/dashboard/) →
+   your container → **Schema** → confirm `VaultItem`, `VaultMeta`,
+   `VaultDevice` and `VaultAttachment` are listed.
+4. **Deploy Schema Changes** → Production.
+
+### 4. Get it onto the second phone
+
+Distribute through **TestFlight** (Product → Archive → Distribute App → App
+Store Connect, then add your wife as an internal tester), or **ad-hoc** with
+both device UDIDs registered. TestFlight builds expire after 90 days; upload a
+fresh build when they do.
+
+### 5. Pair the two phones
+
+1. On **your** phone: Settings → **Share with my partner** → **Send
+   invitation** → choose her from Messages.
+2. On **her** phone: install the app first, then open the invitation link. It
+   opens the app and asks for the master passphrase.
+3. Tell her the passphrase **in person** — not over the same iMessage thread.
+   Sending the invitation and the passphrase through the same channel undoes
+   the point of the design.
+
+She should not tap "Create vault" on her own phone before accepting the
+invitation, or the two phones end up with two separate vaults. If that happens,
+Settings → Remove vault from this iPhone on her phone, then accept the
+invitation.
+
+---
+
+## Layout of the code
+
+```
+FamilyVault/
+  App/            entry point, app + scene delegates, VaultSession (lock state)
+  Crypto/         AES-GCM box, PBKDF2 derivation, keychain, key manager,
+                  password generator
+  Model/          VaultItem + attachments, categories, field templates, devices,
+                  money parsing, summary and health-check rules
+  Store/          VaultStore (source of truth), encrypted local file,
+                  encrypted attachment store
+  Cloud/          CloudKit service, record mapping, change tokens, sharing UI
+  Security/       settings, expiring clipboard, per-secret Face ID gate
+  Notifications/  local reminder scheduling
+  Backup/         password-protected export/restore, emergency-sheet PDF
+  Views/          SwiftUI screens
+```
+
+The pieces worth understanding first are `Crypto/VaultKeyManager.swift` (how one
+passphrase opens one vault on two phones) and `Store/VaultStore.swift` (how the
+two copies reconcile — last change wins, per record, with tombstones for
+deletions).
+
+## Things it deliberately does not do
+
+- **No passphrase recovery.** Adding one would mean storing a second copy of
+  the key somewhere, which is exactly what this app exists to avoid. Keep an
+  exported backup instead.
+- **No third device, ever** — including an iPad or a Mac.
+- **No home-screen widget or Shortcuts actions.** A widget would have to render
+  while the vault is locked, and the key is not available then; a widget that
+  could show your renewals on the lock screen would defeat the lock.
+- **No bank or account connections.** Every figure here is one you typed. That
+  is why nothing in this app can move money.
+- **No analytics, no crash reporting, no network calls of any kind** other than
+  CloudKit.
