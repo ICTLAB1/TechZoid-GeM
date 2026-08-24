@@ -92,12 +92,15 @@ enum DocumentFieldExtractor {
 
         case .bankAccount:
             [
-                Rule(label: "Account number", cues: ["account no", "a/c no", "account number"], kind: .alphanumeric, confidence: 0.9),
-                Rule(label: "IFSC code", cues: ["ifsc"], kind: .alphanumeric, confidence: 0.95),
-                Rule(label: "Bank", cues: ["bank name", "issued by"], kind: .name, confidence: 0.7),
-                Rule(label: "Branch", cues: ["branch"], kind: .freeText, confidence: 0.75),
-                Rule(label: "Account holder", cues: ["account holder", "name of account holder", "customer name"], kind: .name),
-                Rule(label: "Customer ID", cues: ["customer id", "cif", "crn"], kind: .alphanumeric)
+                Rule(label: "Account number", cues: ["account no", "a/c no", "ac no", "account number", "account #"], kind: .alphanumeric, confidence: 0.9),
+                Rule(label: "IFSC code", cues: ["ifsc", "ifs code"], kind: .alphanumeric, confidence: 0.95),
+                Rule(label: "Bank", cues: ["bank name", "issued by", "name of bank"], kind: .name, confidence: 0.7),
+                Rule(label: "Branch", cues: ["branch name", "home branch", "branch"], kind: .freeText, confidence: 0.75),
+                Rule(label: "Account holder", cues: ["account holder", "name of account holder", "customer name", "account name"], kind: .name),
+                Rule(label: "Account type", cues: ["account type", "scheme", "product name"], kind: .freeText, confidence: 0.7),
+                Rule(label: "Customer ID", cues: ["customer id", "cif no", "cif", "crn"], kind: .alphanumeric),
+                Rule(label: "Registered mobile", cues: ["registered mobile", "mobile no", "mobile number"], kind: .alphanumeric, confidence: 0.75),
+                Rule(label: "Nominee", cues: ["nomination", "nominee"], kind: .name, confidence: 0.7)
             ]
 
         case .investment:
@@ -124,7 +127,19 @@ enum DocumentFieldExtractor {
             ]
 
         case .card:
-            []   // cards come from CardScanner, which reads the plastic itself
+            // A card *statement* is a different document from the card itself.
+            // It never prints the full number, the CVV or the PIN — but it does
+            // carry the things that are tedious to type and easy to forget.
+            [
+                Rule(label: "Issuer", cues: ["issued by", "bank name", "statement from"], kind: .name, confidence: 0.7),
+                Rule(label: "Name on card", cues: ["name on card", "card member", "cardmember", "customer name"], kind: .name, confidence: 0.8),
+                Rule(label: "Card number", cues: ["card no", "card number", "credit card number", "account number"], kind: .alphanumeric, confidence: 0.8),
+                Rule(label: "Credit limit", cues: ["total credit limit", "credit limit", "sanctioned limit"], kind: .money, confidence: 0.9),
+                Rule(label: "Statement date", cues: ["statement date", "statement generated on", "bill date"], kind: .date, confidence: 0.88),
+                Rule(label: "Payment due date", cues: ["payment due date", "due date", "pay by"], kind: .date, confidence: 0.9),
+                Rule(label: "Customer care", cues: ["customer care", "toll free", "toll-free", "helpline", "contact us"], kind: .alphanumeric, confidence: 0.75),
+                Rule(label: "Linked bank account", cues: ["auto debit", "linked account", "debit account"], kind: .alphanumeric, confidence: 0.6)
+            ]
 
         default:
             []
@@ -140,12 +155,12 @@ enum DocumentFieldExtractor {
 
             // Value on the same line, after the cue and any separator…
             if let tail = trailing(of: line, after: cue), let value = value(from: tail, kind: rule.kind) {
-                return ExtractedField(label: rule.label, value: value, confidence: rule.confidence, evidence: line)
+                return field(rule: rule, value: value, confidence: rule.confidence, evidence: line)
             }
             // …or on the line below, which is how tables usually come out of OCR.
             if index + 1 < lines.count, let value = value(from: lines[index + 1], kind: rule.kind) {
-                return ExtractedField(
-                    label: rule.label,
+                return field(
+                    rule: rule,
                     value: value,
                     confidence: max(rule.confidence - 0.15, 0.4),
                     evidence: "\(line) → \(lines[index + 1])"
@@ -153,6 +168,29 @@ enum DocumentFieldExtractor {
             }
         }
         return nil
+    }
+
+    /// Statements print numbers half-hidden — `XXXXXXXX3417`, `**** 3417`.
+    /// That is a genuine reading of the document, but it is not the number, so
+    /// it is knocked down below the auto-fill line and shows up for review with
+    /// the reason attached rather than quietly becoming your card number.
+    private static func field(rule: Rule, value: String, confidence: Double, evidence: String) -> ExtractedField {
+        guard isMasked(value) else {
+            return ExtractedField(label: rule.label, value: value, confidence: confidence, evidence: evidence)
+        }
+        return ExtractedField(
+            label: rule.label,
+            value: value,
+            confidence: min(confidence, 0.45),
+            evidence: "\(evidence)  ·  partly hidden on the statement"
+        )
+    }
+
+    private static func isMasked(_ value: String) -> Bool {
+        let lowered = value.lowercased()
+        if lowered.contains("****") || lowered.contains("••••") { return true }
+        // Three or more consecutive x's is masking, not a real identifier.
+        return lowered.range(of: "x{3,}", options: .regularExpression) != nil
     }
 
     private static func trailing(of line: String, after cue: String) -> String? {

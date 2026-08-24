@@ -91,6 +91,20 @@ Three rules make this safe rather than merely clever:
    listed under "not sure about these", with the line it came from as evidence.
 3. **Everything applied can be undone in one tap**, from the review sheet.
 
+**Statements are a different document from the thing they're about.** A bank
+statement carries the account number, IFSC, branch, holder and customer ID —
+most of what that entry needs. A credit card statement carries the issuer,
+credit limit, statement and due dates and the customer care number, but it
+prints the card number **half-hidden** (`XXXXXXXX3417`) and never prints the
+CVV or PIN at all. Masked values are recognised as masked: they drop below the
+auto-fill line and appear for review with "partly hidden on the statement"
+attached, rather than quietly becoming your card number. Only scanning the
+plastic gives you the full number.
+
+Neither imports **transactions**. This is a record book, not an expense
+tracker — a statement's line items go stale in a month and would bury the
+things that don't.
+
 Be realistic about the accuracy: Indian insurers and banks lay documents out
 however they like, and OCR on a phone photo is imperfect. Expect a good policy
 PDF to fill most fields and a crumpled photocopy to fill few. The design above

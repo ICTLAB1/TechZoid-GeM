@@ -318,18 +318,20 @@ struct AttachmentPicker: View {
 
     private func handleScan(_ pages: [UIImage]) async {
         guard !pages.isEmpty else { return }
-        progress = isCard ? "Reading the card…" : "Building the PDF…"
+        progress = isCard ? "Reading…" : "Building the PDF…"
         defer { progress = nil }
 
         let text = await TextRecognizer.text(from: pages)
 
-        if isCard {
+        // On a card entry, work out which of the two things was put in front of
+        // the camera. The plastic yields a handful of lines and a checksum-valid
+        // number; a statement yields hundreds of lines and a masked one.
+        if isCard, looksLikePlastic(text) {
             // A card is read, not filed: storing a photograph of the plastic
             // alongside the numbers would put both in one place for nothing.
-            let result = CardScanner.read(text)
-            let fields = CardScanner.fields(from: result)
+            let fields = CardScanner.fields(from: CardScanner.read(text))
             guard !fields.isEmpty else {
-                errorMessage = "Couldn't read a card number from that. Try again in better light, with the card flat and filling the frame."
+                errorMessage = "Couldn't read a card number from that. Try again in better light, with the card flat and filling the frame — or scan the statement instead."
                 return
             }
             finish(fields: fields, documentName: "the scanned card")
@@ -430,6 +432,15 @@ struct AttachmentPicker: View {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// True when the scan is the card itself rather than a bill about it.
+    private func looksLikePlastic(_ text: String) -> Bool {
+        let lines = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        // A statement runs to hundreds of lines. Anything this short is plastic,
+        // and the Luhn check inside CardScanner still has the final say.
+        guard lines.count <= 18 else { return false }
+        return CardScanner.read(text).number != nil
     }
 
     private func extractAndFill(from text: String, documentName: String) {
