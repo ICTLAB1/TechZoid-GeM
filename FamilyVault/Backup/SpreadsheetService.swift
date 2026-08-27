@@ -189,6 +189,51 @@ enum SpreadsheetService {
         return lines.joined(separator: "\n")
     }
 
+    /// One row per payment recorded against any entry, newest first within
+    /// each entry.
+    static func paymentsCSV(for items: [VaultItem]) -> String {
+        let columns = ["Entry", "Category", "Amount", "Paid on", "Due date", "Note", "Recorded by"]
+        var lines = [columns.map(escape).joined(separator: ",")]
+
+        for item in items {
+            for payment in item.paymentsByRecency {
+                let row = [
+                    item.displayTitle,
+                    item.category.title,
+                    payment.amount,
+                    payment.paidOn.formatted(date: .abbreviated, time: .omitted),
+                    payment.dueDate?.formatted(date: .abbreviated, time: .omitted) ?? "",
+                    payment.note,
+                    payment.recordedBy
+                ]
+                lines.append(row.map(escape).joined(separator: ","))
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// One row per activity entry — the same feed the "recent activity" screen
+    /// shows, as a spreadsheet.
+    static func activityCSV(for entries: [ActivityEntry]) -> String {
+        let columns = ["Entry", "Category", "Event", "Summary", "When", "Device"]
+        var lines = [columns.map(escape).joined(separator: ",")]
+
+        for entry in entries {
+            let row = [
+                entry.item.displayTitle,
+                entry.item.category.title,
+                entry.event.kind.verb,
+                entry.event.detail,
+                entry.event.at.formatted(date: .abbreviated, time: .shortened),
+                entry.event.deviceName
+            ]
+            lines.append(row.map(escape).joined(separator: ","))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     static func write(csv: String, filename: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
         try Data(csv.utf8).write(to: url, options: [.atomic, .completeFileProtection])

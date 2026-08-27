@@ -114,19 +114,47 @@ final class VaultSession: ObservableObject {
             let key = try await derive { try manager.unwrap(material: material, passphrase: passphrase) }
             try store.open(dataKey: key, material: material)
             dataKey = key
-            settings.failedAttempts = 0
             await finishUnlock(dataKey: key, passphrase: passphrase, deviceName: deviceName)
         } catch {
-            registerFailedAttempt(error)
+            registerFailedAttempt(error, isWrongPassphrase: true)
         }
     }
 
-    /// A wrong passphrase is usually a typo, so the count only matters when
-    /// the user has deliberately asked for a limit.
-    private func registerFailedAttempt(_ error: Error) {
-        guard case VaultKeyManager.Failure.wrongPassphrase = error else {
+    /// A wrong passphrase — or a failed biometric check — is usually just a
+    /// typo or a bad face/finger read, so the count only matters once the
+    /// user has deliberately asked for a limit. `isWrongPassphrase` tells us
+    /// whether `error` came from the passphrase path (where only
+    /// `VaultKeyManager.Failure.wrongPassphrase` should count) or the
+    /// biometric path (where any non-cancellation `Keychain.Failure` counts).
+    private func registerFailedAttempt(_ error: Error, isWrongPassphrase: Bool) {
+        let countsTowardLimit: Bool
+        if isWrongPassphrase {
+            if case VaultKeyManager.Failure.wrongPassphrase = error {
+                countsTowardLimit = true
+            } else {
+                countsTowardLimit = false
+            }
+        } else {
+            // Keychain.swift folds a genuine "wrong face/finger" rejection
+            // and a deliberate user cancellation into the same
+            // `.userCancelled` case, so that specific case is intentionally
+            // excluded here — we'd rather under-count than wipe a device
+            // because someone backed out of a Face ID prompt. Any other
+            // `Keychain.Failure` (auth temporarily unavailable, lockout,
+            // etc.) is a real failed attempt.
+            switch error {
+            case Keychain.Failure.userCancelled:
+                countsTowardLimit = false
+            case is Keychain.Failure:
+                countsTowardLimit = true
+            default:
+                countsTowardLimit = false
+            }
+        }
+
+        guard countsTowardLimit else {
             phase = .locked
-            errorMessage = message(for: error)
+            if isWrongPassphrase { errorMessage = message(for: error) }
             return
         }
 
@@ -135,7 +163,6 @@ final class VaultSession: ObservableObject {
 
         if limit > 0, settings.failedAttempts >= limit {
             removeVaultFromThisDevice()
-            settings.failedAttempts = 0
             didWipeAfterFailures = true
             return
         }
@@ -143,7 +170,8 @@ final class VaultSession: ObservableObject {
         phase = .locked
         if limit > 0 {
             let left = limit - settings.failedAttempts
-            errorMessage = "That passphrase doesn't unlock this vault. \(left) tr\(left == 1 ? "y" : "ies") left before this iPhone erases its copy."
+            let reason = isWrongPassphrase ? "That passphrase doesn't unlock this vault." : "That didn't match."
+            errorMessage = "\(reason) \(left) tr\(left == 1 ? "y" : "ies") left before this iPhone erases its copy."
         } else {
             errorMessage = message(for: error)
         }
@@ -160,15 +188,16 @@ final class VaultSession: ObservableObject {
             try store.open(dataKey: key, material: material)
             dataKey = key
             await finishUnlock(dataKey: key, passphrase: nil, deviceName: nil)
-        } catch Keychain.Failure.userCancelled {
-            phase = .locked
         } catch {
-            phase = .locked
-            errorMessage = message(for: error)
+            registerFailedAttempt(error, isWrongPassphrase: false)
         }
     }
 
     private func finishUnlock(dataKey: SymmetricKey, passphrase: String?, deviceName: String?) async {
+        // Reached only once the passphrase (or biometric read) has actually
+        // decrypted the vault key, so any run of prior failures is over.
+        settings.failedAttempts = 0
+
         if settings.biometricsEnabled, passphrase != nil, !keyManager.hasBiometricKey {
             try? keyManager.enableBiometricUnlock(dataKey: dataKey)
         }
@@ -231,6 +260,7 @@ final class VaultSession: ObservableObject {
         store.wipeThisDevice()
         dataKey = nil
         settings.hasCompletedSetup = false
+        settings.failedAttempts = 0
         phase = .setup
     }
 

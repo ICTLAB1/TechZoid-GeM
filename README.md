@@ -134,14 +134,19 @@ one who bought it.
   outgo, and total credit limit. Built entirely from the amounts you typed;
   nothing is fetched from any bank. Monthly, quarterly and half-yearly premiums
   are normalised to a yearly figure so the total means something. Understands
-  "5L" and "1.2 Cr" as well as "500000".
+  "5L" and "1.2 Cr" as well as "500000". Once there are two months of history,
+  a **net worth over time** chart appears above the totals — investments at
+  current value minus loans outstanding, recorded once a month straight from
+  what's in the vault, with nothing new to type in.
 - **Check-up** — a standing audit that surfaces what quietly rots:
   - renewals and EMIs that have already lapsed,
   - anything due in the next 30 days,
   - cards past (or two months from) their expiry,
   - identity documents past their validity,
   - policies, investments and accounts with **no nominee recorded**,
-  - weak passwords, and the same password used across several logins.
+  - weak passwords, and the same password used across several logins,
+  - the **same account or policy number entered twice**, usually a sign an
+    import or a scan created a duplicate rather than updating the original.
 
 ### Reminders
 
@@ -227,6 +232,9 @@ copy of the secrets.
 - **Spreadsheet export** — the same in reverse, with secrets masked by default.
   It's plain text with no password on it, so the unmasked option carries a
   warning and the encrypted backup remains the copy worth keeping.
+- **Payments and activity as CSV** — two narrower exports alongside the full
+  one: every payment you've logged (for reconciling against a bank statement),
+  and the full change log (for reviewing who did what, and when).
 - **Documents can be shared** out of the viewer — a policy PDF you can't send
   to the insurer isn't much use.
 
@@ -251,6 +259,21 @@ to any secret field.
   default), so a card number doesn't sit there for the rest of the day.
 - The app blurs itself in the app switcher and auto-locks when it leaves the
   foreground.
+- If a screen recording or a mirrored display starts while the vault is
+  unlocked, a privacy shield covers the screen immediately — a screenshot
+  itself can't be blocked by any app, but a live recording or AirPlay mirror
+  can, and now is.
+- On a device Vault finds signs of being jailbroken on, it says so with a
+  dismissible banner rather than silently trusting a sandbox that may no
+  longer be one. It never blocks the app outright — false positives on this
+  kind of check are common enough that locking someone out entirely would
+  cause more harm than the check prevents.
+- If the device has no passcode or biometry enrolled at all, Face ID gates now
+  **refuse** rather than wave the request through — a locked-away secret with
+  no way to prove who's asking stays locked away.
+- Key material is zeroed in memory as soon as it's used rather than left for
+  the allocator to reuse: the derived encryption key, the passphrase bytes fed
+  into PBKDF2, and the raw key unwrapped for each encrypt/decrypt.
 
 ### Getting started
 
@@ -285,6 +308,9 @@ retire an old one.
 Changes appear on the other phone on their own, over a silent push. If iCloud
 is unreachable, everything still works offline and syncs when it comes back —
 the home screen says which state you're in, and how many changes are waiting.
+A transient CloudKit hiccup (a busy zone, a rate limit, a dropped connection)
+is retried on its own with backoff rather than surfaced as a sync failure;
+only a genuine, non-recoverable error is shown to you.
 
 ## How the secrecy actually works
 

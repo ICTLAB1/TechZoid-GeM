@@ -59,11 +59,13 @@ final class VaultKeyManager: @unchecked Sendable {
     enum Failure: LocalizedError {
         case wrongPassphrase
         case noKeyMaterial
+        case corruptedKeyMaterial
 
         var errorDescription: String? {
             switch self {
             case .wrongPassphrase: "That passphrase doesn't unlock this vault."
             case .noKeyMaterial: "This vault hasn't been set up on this device yet."
+            case .corruptedKeyMaterial: "This vault's key material is damaged and can't be read, independent of the passphrase."
             }
         }
     }
@@ -92,7 +94,9 @@ final class VaultKeyManager: @unchecked Sendable {
         let salt = CryptoBox.randomBytes(KeyDerivation.saltLength)
         let iterations = KeyDerivation.defaultIterations
         let wrappingKey = try KeyDerivation.deriveKey(passphrase: passphrase, salt: salt, iterations: iterations)
-        let wrapped = try CryptoBox.seal(dataKey.rawData, key: wrappingKey)
+        var rawDataKey = dataKey.rawData
+        defer { rawDataKey.secureZeroOut() }
+        let wrapped = try CryptoBox.seal(rawDataKey, key: wrappingKey)
 
         let material = VaultKeyMaterial(
             vaultID: UUID().uuidString,
@@ -109,9 +113,19 @@ final class VaultKeyManager: @unchecked Sendable {
             passphrase: passphrase, salt: material.salt, iterations: material.iterations
         )
         do {
-            let raw = try CryptoBox.open(material.wrappedKey, key: wrappingKey)
+            var raw = try CryptoBox.open(material.wrappedKey, key: wrappingKey)
+            defer { raw.secureZeroOut() }
             return SymmetricKey(data: raw)
+        } catch CryptoBox.Failure.malformedCiphertext {
+            // The wrapped key blob itself is structurally invalid — this is
+            // data corruption, not a wrong guess, and no passphrase will fix
+            // it. Keep this distinguishable from `.wrongPassphrase` so the UI
+            // doesn't tell the user to just retype their passphrase.
+            throw Failure.corruptedKeyMaterial
         } catch {
+            // Any other failure (GCM authentication failure) means the key
+            // we derived doesn't open this blob — almost always a wrong
+            // passphrase.
             throw Failure.wrongPassphrase
         }
     }
@@ -122,10 +136,12 @@ final class VaultKeyManager: @unchecked Sendable {
         let salt = CryptoBox.randomBytes(KeyDerivation.saltLength)
         let iterations = KeyDerivation.defaultIterations
         let wrappingKey = try KeyDerivation.deriveKey(passphrase: newPassphrase, salt: salt, iterations: iterations)
+        var rawDataKey = dataKey.rawData
+        defer { rawDataKey.secureZeroOut() }
         var updated = material
         updated.salt = salt
         updated.iterations = iterations
-        updated.wrappedKey = try CryptoBox.seal(dataKey.rawData, key: wrappingKey)
+        updated.wrappedKey = try CryptoBox.seal(rawDataKey, key: wrappingKey)
         return updated
     }
 
@@ -134,7 +150,9 @@ final class VaultKeyManager: @unchecked Sendable {
     var hasBiometricKey: Bool { Keychain.exists(account: Self.dataKeyAccount) }
 
     func enableBiometricUnlock(dataKey: SymmetricKey) throws {
-        try Keychain.storeBiometryProtected(dataKey.rawData, account: Self.dataKeyAccount)
+        var raw = dataKey.rawData
+        defer { raw.secureZeroOut() }
+        try Keychain.storeBiometryProtected(raw, account: Self.dataKeyAccount)
     }
 
     func disableBiometricUnlock() {
@@ -142,7 +160,8 @@ final class VaultKeyManager: @unchecked Sendable {
     }
 
     func biometricUnlock(prompt: String) throws -> SymmetricKey {
-        let raw = try Keychain.readBiometryProtected(account: Self.dataKeyAccount, prompt: prompt)
+        var raw = try Keychain.readBiometryProtected(account: Self.dataKeyAccount, prompt: prompt)
+        defer { raw.secureZeroOut() }
         return SymmetricKey(data: raw)
     }
 

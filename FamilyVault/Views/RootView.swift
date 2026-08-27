@@ -2,6 +2,22 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var session: VaultSession
+    @StateObject private var screenProtection = ScreenProtectionMonitor.shared
+
+    @State private var isDeviceLikelyCompromised = false
+    @State private var didDismissCompromiseBanner = false
+
+    private var isUnlocked: Bool {
+        if case .unlocked = session.phase { return true }
+        return false
+    }
+
+    /// A recording/mirroring session is just as much a leak as the app
+    /// switcher snapshot the existing shield already covers, so it reuses
+    /// the exact same `PrivacyShield` and the exact same condition shape.
+    private var isScreenShieldNeeded: Bool {
+        isUnlocked && (session.isPrivacyShieldUp || screenProtection.isBeingRecorded)
+    }
 
     var body: some View {
         ZStack {
@@ -20,11 +36,31 @@ struct RootView: View {
                 UnavailableView(reason: reason)
             }
 
-            if session.isPrivacyShieldUp {
+            if isUnlocked && isDeviceLikelyCompromised && !didDismissCompromiseBanner {
+                VStack {
+                    CompromisedDeviceBanner {
+                        didDismissCompromiseBanner = true
+                    }
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            if isScreenShieldNeeded {
                 PrivacyShield()
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: session.isPrivacyShieldUp)
+        .animation(.easeInOut(duration: 0.2), value: isScreenShieldNeeded)
+        .animation(.easeInOut(duration: 0.2), value: didDismissCompromiseBanner)
+        .task {
+            screenProtection.startMonitoring()
+            // File I/O and (rarely) a main-thread hop for the Cydia URL
+            // check — keep it off the main actor so launch never hitches.
+            let compromised = await Task.detached(priority: .utility) {
+                JailbreakDetector.isLikelyCompromised
+            }.value
+            isDeviceLikelyCompromised = compromised
+        }
         .alert("This iPhone's copy was erased", isPresented: $session.didWipeAfterFailures) {
             Button("OK", role: .cancel) { session.didWipeAfterFailures = false }
         } message: {
@@ -39,6 +75,35 @@ struct RootView: View {
             actions: { Button("OK", role: .cancel) { session.errorMessage = nil } },
             message: { Text(session.errorMessage ?? "") }
         )
+    }
+}
+
+/// Small, dismissible, non-blocking notice — the whole point is that a
+/// possibly-tampered device still gets to see its own vault, just informed.
+private struct CompromisedDeviceBanner: View {
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+            Text("This iPhone shows signs of a modified operating system, which can make on-device encryption easier to bypass.")
+                .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 }
 

@@ -115,6 +115,7 @@ struct ShareVaultView: View {
         }
     }
 
+    @MainActor
     private func loadShare() async {
         guard let existing = await session.currentShare() else {
             participants = []

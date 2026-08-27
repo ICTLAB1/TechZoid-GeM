@@ -154,18 +154,24 @@ enum DocumentFieldExtractor {
             guard let cue = rule.cues.first(where: { lowered.contains($0) }) else { continue }
 
             // Value on the same line, after the cue and any separator…
-            if let tail = trailing(of: line, after: cue), let value = value(from: tail, kind: rule.kind) {
-                return field(rule: rule, value: value, confidence: rule.confidence, evidence: line)
+            if let tail = trailing(of: line, after: cue),
+               let value = value(from: tail, kind: rule.kind),
+               let match = field(rule: rule, value: value, confidence: rule.confidence, evidence: line) {
+                return match
             }
             // …or on the line below, which is how tables usually come out of OCR.
-            if index + 1 < lines.count, let value = value(from: lines[index + 1], kind: rule.kind) {
-                return field(
-                    rule: rule,
-                    value: value,
-                    confidence: max(rule.confidence - 0.15, 0.4),
-                    evidence: "\(line) → \(lines[index + 1])"
-                )
+            if index + 1 < lines.count,
+               let value = value(from: lines[index + 1], kind: rule.kind),
+               let match = field(
+                   rule: rule,
+                   value: value,
+                   confidence: max(rule.confidence - 0.15, 0.4),
+                   evidence: "\(line) → \(lines[index + 1])"
+               ) {
+                return match
             }
+            // A rejected candidate (e.g. a "Card number" that fails Luhn)
+            // doesn't end the search — a later, better line still might work.
         }
         return nil
     }
@@ -174,23 +180,41 @@ enum DocumentFieldExtractor {
     /// That is a genuine reading of the document, but it is not the number, so
     /// it is knocked down below the auto-fill line and shows up for review with
     /// the reason attached rather than quietly becoming your card number.
-    private static func field(rule: Rule, value: String, confidence: Double, evidence: String) -> ExtractedField {
-        guard isMasked(value) else {
-            return ExtractedField(label: rule.label, value: value, confidence: confidence, evidence: evidence)
+    ///
+    /// A card number that *isn't* masked is a separate risk: a statement
+    /// should never print one in full, so a "full" 13–19 digit read here is
+    /// far more likely a misread than a genuine, PCI-violating printout —
+    /// unlike `CardScanner`, nothing upstream of this has checked its
+    /// checksum. Run the same Luhn test the plastic-card path trusts, and
+    /// discard rather than offer a candidate that fails it, so a bad OCR read
+    /// on a statement can't get auto-filled into a card number that's wrong.
+    private static func field(rule: Rule, value: String, confidence: Double, evidence: String) -> ExtractedField? {
+        if isMasked(value) {
+            return ExtractedField(
+                label: rule.label,
+                value: value,
+                confidence: min(confidence, 0.45),
+                evidence: "\(evidence)  ·  partly hidden on the statement"
+            )
         }
-        return ExtractedField(
-            label: rule.label,
-            value: value,
-            confidence: min(confidence, 0.45),
-            evidence: "\(evidence)  ·  partly hidden on the statement"
-        )
+        if rule.label == "Card number" {
+            let digits = value.filter(\.isNumber)
+            if (13...19).contains(digits.count), !CardScanner.passesLuhn(digits) {
+                return nil
+            }
+        }
+        return ExtractedField(label: rule.label, value: value, confidence: confidence, evidence: evidence)
     }
 
     private static func isMasked(_ value: String) -> Bool {
         let lowered = value.lowercased()
         if lowered.contains("****") || lowered.contains("••••") { return true }
-        // Three or more consecutive x's is masking, not a real identifier.
-        return lowered.range(of: "x{3,}", options: .regularExpression) != nil
+        // Three or more consecutive masking-style characters — x's, stars or
+        // bullets — is masking, not a real identifier. OCR renders the same
+        // masked run inconsistently (mixed case, dots vs. stars, a stray
+        // "0" for a smudged glyph), so this checks for a run of any of the
+        // characters actually seen on statements rather than one exact string.
+        return lowered.range(of: "[x*•●]{3,}", options: .regularExpression) != nil
     }
 
     private static func trailing(of line: String, after cue: String) -> String? {
@@ -206,8 +230,13 @@ enum DocumentFieldExtractor {
 
         switch kind {
         case .alphanumeric:
-            // At least six characters of number-ish identifier.
-            guard let match = firstMatch(in: trimmed, pattern: "[A-Z0-9][A-Z0-9\\-/ ]{5,29}[A-Z0-9]") else { return nil }
+            // At least six characters of number-ish identifier. The class
+            // also admits `*`/`•` at the edges (not just in the middle) so a
+            // wholly-masked run like "****3417" — with no letters to anchor
+            // on, only the four trailing digits — is captured as one token
+            // rather than falling below the minimum length and vanishing
+            // before `isMasked` ever gets a chance to see it and demote it.
+            guard let match = firstMatch(in: trimmed, pattern: "[A-Z0-9*•][A-Z0-9\\-/ *•]{5,29}[A-Z0-9*•]") else { return nil }
             let cleaned = match.trimmingCharacters(in: .whitespaces)
             return cleaned.contains(where: \.isNumber) ? cleaned : nil
 

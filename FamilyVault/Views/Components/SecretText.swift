@@ -55,6 +55,10 @@ struct SecretValueView: View {
     }
 
     private func toggleReveal() {
+        // Guards against a double-tap re-entering this while a Face ID prompt
+        // from the first tap is still on screen — without this, two concurrent
+        // `evaluatePolicy` calls can stack.
+        guard !isAuthenticating else { return }
         guard !isRevealed else {
             withAnimation(.easeInOut(duration: 0.15)) { isRevealed = false }
             return
@@ -74,9 +78,16 @@ struct SecretValueView: View {
     private func copy() {
         // Copying a hidden secret is allowed — the value goes to the clipboard,
         // not to the screen — but the same Face ID rule applies when it is on.
+        // Shares `isAuthenticating` with the reveal flow so a double-tap here
+        // (or a tap here while a reveal prompt is already in flight) can't
+        // trigger a second, overlapping biometric prompt.
+        guard !isAuthenticating else { return }
         guard !requireBiometricsToReveal || isRevealed else {
+            isAuthenticating = true
             Task {
-                guard await BiometricGate.authenticate(reason: "Copy this value") else { return }
+                let allowed = await BiometricGate.authenticate(reason: "Copy this value")
+                isAuthenticating = false
+                guard allowed else { return }
                 performCopy()
             }
             return

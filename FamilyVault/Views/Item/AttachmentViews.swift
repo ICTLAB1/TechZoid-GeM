@@ -83,6 +83,7 @@ struct AttachmentThumbnail: View {
         .task(id: store.attachmentRevision) { await loadPreview() }
     }
 
+    @MainActor
     private func loadPreview() async {
         guard attachment.isImage, preview == nil, store.isAttachmentAvailable(attachment) else { return }
         guard let data = try? store.attachmentData(attachment) else { return }
@@ -316,6 +317,7 @@ struct AttachmentPicker: View {
 
     // MARK: - Scanning
 
+    @MainActor
     private func handleScan(_ pages: [UIImage]) async {
         guard !pages.isEmpty else { return }
         progress = isCard ? "Reading…" : "Building the PDF…"
@@ -352,6 +354,7 @@ struct AttachmentPicker: View {
     /// A photo taken here is stored as a photo. It is still read for text, so
     /// a snapshot of a policy page can fill fields in — but it stays an image
     /// rather than being forced into a PDF.
+    @MainActor
     private func handleCapture(_ image: UIImage) async {
         progress = "Adding the photo…"
         defer { progress = nil }
@@ -369,6 +372,7 @@ struct AttachmentPicker: View {
 
     // MARK: - Picking
 
+    @MainActor
     private func importPhotos(_ selection: [PhotosPickerItem]) async {
         progress = "Adding photos…"
         defer { progress = nil; photoSelection = [] }
@@ -389,6 +393,7 @@ struct AttachmentPicker: View {
         }
     }
 
+    @MainActor
     private func importFiles(_ urls: [URL]) async {
         progress = "Reading…"
         defer { progress = nil }

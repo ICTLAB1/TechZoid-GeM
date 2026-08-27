@@ -67,9 +67,10 @@ enum PasswordGenerator {
         let bound = UInt32.max - (UInt32.max % UInt32(limit))
         while true {
             var value: UInt32 = 0
-            _ = withUnsafeMutableBytes(of: &value) { buffer in
+            let status = withUnsafeMutableBytes(of: &value) { buffer in
                 SecRandomCopyBytes(kSecRandomDefault, 4, buffer.baseAddress!)
             }
+            precondition(status == errSecSuccess, "The system random number generator failed.")
             if value < bound { return Int(value % UInt32(limit)) }
         }
     }

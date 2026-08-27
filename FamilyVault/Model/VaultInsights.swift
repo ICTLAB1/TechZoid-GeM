@@ -82,6 +82,19 @@ struct VaultSummary {
     }
 }
 
+/// A month's worth of the summary tiles, kept locally so a chart can show how
+/// things have moved over time. Derived from the items rather than something
+/// the user typed, so it never needs to go up to CloudKit — each phone can
+/// (re)build its own history from the vault it already has.
+struct NetWorthSnapshot: Codable, Identifiable {
+    var id: UUID = UUID()
+    var month: Date       // normalized to the first of the month, for stable sorting/grouping
+    var cover: Decimal
+    var invested: Decimal   // use VaultSummary.currentValue
+    var outstanding: Decimal
+    var netWorth: Decimal   // invested - outstanding
+}
+
 // MARK: - Health check
 
 enum FindingSeverity: Int, Comparable {
@@ -139,6 +152,7 @@ enum VaultHealth {
         }
 
         findings.append(contentsOf: reusedPasswordFindings(items))
+        findings.append(contentsOf: duplicateEntryFindings(items))
 
         return findings.sorted { lhs, rhs in
             lhs.severity == rhs.severity ? lhs.title < rhs.title : lhs.severity < rhs.severity
@@ -245,6 +259,38 @@ enum VaultHealth {
                 severity: .critical,
                 title: "One password, \(sharing.count) logins",
                 detail: "The same password is saved for: \(names). If one leaks, all of them are open."
+            )
+        }
+    }
+
+    /// The same account, policy or card number recorded on two entries in the
+    /// same category — almost always the same real-world thing added twice,
+    /// most often from two different scanned documents.
+    private static func duplicateEntryFindings(_ items: [VaultItem]) -> [HealthFinding] {
+        var byKey: [String: [VaultItem]] = [:]
+
+        for item in items {
+            guard let label = CategoryTemplates.identifyingField(for: item.category),
+                  let raw = item.value(forLabel: label) else { continue }
+            let normalized = raw
+                .folding(options: .diacriticInsensitive, locale: .current)
+                .uppercased()
+                .filter { !$0.isWhitespace }
+            guard !normalized.isEmpty else { continue }
+            let key = "\(item.category.rawValue)|\(normalized)"
+            byKey[key, default: []].append(item)
+        }
+
+        return byKey.values.compactMap { sharing -> HealthFinding? in
+            guard sharing.count > 1, let category = sharing.first?.category,
+                  let label = CategoryTemplates.identifyingField(for: category)
+            else { return nil }
+            let names = sharing.map(\.displayTitle).sorted().joined(separator: ", ")
+            return HealthFinding(
+                itemID: sharing.first?.id,
+                severity: .warning,
+                title: "Possible duplicate \(category.singular.lowercased())",
+                detail: "The same \(label.lowercased()) is recorded on: \(names). Worth checking these aren't the same \(category.singular.lowercased()) added twice."
             )
         }
     }

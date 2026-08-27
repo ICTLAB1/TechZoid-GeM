@@ -18,8 +18,14 @@ enum KeyDerivation {
     }
 
     static func deriveKey(passphrase: String, salt: Data, iterations: Int) throws -> SymmetricKey {
-        let passphraseBytes = Array(passphrase.precomposedStringWithCanonicalMapping.utf8)
+        var passphraseBytes = Array(passphrase.precomposedStringWithCanonicalMapping.utf8)
+        var signedPassphraseBytes = passphraseBytes.map { Int8(bitPattern: $0) }
         var derived = [UInt8](repeating: 0, count: 32)
+        defer {
+            passphraseBytes.secureZeroOut()
+            signedPassphraseBytes.secureZeroOut()
+            derived.secureZeroOut()
+        }
 
         let status = salt.withUnsafeBytes { saltBuffer -> Int32 in
             guard let saltBase = saltBuffer.bindMemory(to: UInt8.self).baseAddress else {
@@ -27,7 +33,7 @@ enum KeyDerivation {
             }
             return CCKeyDerivationPBKDF(
                 CCPBKDFAlgorithm(kCCPBKDF2),
-                passphraseBytes.map { Int8(bitPattern: $0) }, passphraseBytes.count,
+                signedPassphraseBytes, signedPassphraseBytes.count,
                 saltBase, salt.count,
                 CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
                 UInt32(iterations),

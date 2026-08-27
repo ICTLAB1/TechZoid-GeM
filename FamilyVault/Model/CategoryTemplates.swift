@@ -180,6 +180,23 @@ enum CategoryTemplates {
         }
     }
 
+    /// The field that should be unique per entry in a category — the same
+    /// account number or policy number turning up twice almost always means
+    /// the same real-world thing was added from two different scans.
+    static func identifyingField(for category: ItemCategory) -> String? {
+        switch category {
+        case .bankAccount: "Account number"
+        case .card: "Card number"
+        case .insurance: "Policy number"
+        case .investment: "Folio / account number"
+        case .loan: "Loan account number"
+        case .identity: "Document number"
+        case .document: "Reference number"
+        case .property: "Registration / document number"
+        case .login, .note: nil
+        }
+    }
+
     /// Which field, if present, is worth showing under the title in lists.
     static func subtitleField(for category: ItemCategory) -> String {
         switch category {

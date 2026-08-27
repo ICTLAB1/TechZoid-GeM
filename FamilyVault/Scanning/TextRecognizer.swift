@@ -11,50 +11,177 @@ import Vision
 /// document ever leaves the phone to be read.
 enum TextRecognizer {
 
+    /// Above this many pages, pulling the whole embedded text layer in one
+    /// shot (`PDFDocument.string`) is skipped in favour of OCR-ing just the
+    /// first few pages. No genuine personal document — even a multi-year
+    /// bank statement archive — comes close to this; it exists only to stop
+    /// a PDF deliberately crafted with an enormous page count from turning
+    /// a single import into an unbounded walk of the whole file.
+    private static let maximumPagesForEmbeddedTextScan = 300
+
+    /// How many pages of a scan (or a no-text-layer PDF) get OCR'd. A
+    /// personal document rarely runs past this, and it keeps both the OCR
+    /// time and the number of full-resolution pages alive at once bounded —
+    /// a PDF engineered to have thousands of pages can't turn into an
+    /// unbounded run.
+    private static let maximumOCRPages = 8
+
+    /// A hard ceiling on the text this returns, independent of the later
+    /// storage cap (`capped`). Large enough that no genuine document is ever
+    /// affected; small enough that a hostile PDF's text layer can't be used
+    /// to blow up memory in whatever this string is handed to next.
+    private static let maximumRawTextLength = 500_000
+
     /// Text from a PDF: the embedded layer if there is one, OCR if there isn't.
+    ///
+    /// Every caller in this app is `@MainActor`, so this `async` function
+    /// runs on the main actor right up until its first genuine suspension —
+    /// and `PDFDocument(data:)`'s parsing, `document.string`'s walk of the
+    /// text layer, and `PDFBuilder.renderedPage`'s page-to-bitmap render are
+    /// all synchronous CPU work with no suspension point of their own. Left
+    /// as a plain function body, the *first* page render (or the embedded-
+    /// text scan of a many-page document) would happen on the main thread
+    /// before anything here ever awaits — a visible hitch for a large scan.
+    /// `Task.detached` moves the whole body onto the cooperative thread
+    /// pool from the very first line; `withTaskCancellationHandler` wires
+    /// this call's own cancellation back into it, so `Task.isCancelled`
+    /// inside the detached body still reflects a caller who cancelled the
+    /// scan mid-way, exactly as it would without the detached hop.
     static func text(fromPDF data: Data) async -> String {
-        if let document = PDFDocument(data: data),
-           let embedded = document.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-           embedded.count > 80 {
-            return embedded
+        let work = Task.detached(priority: .userInitiated) { () -> String in
+            guard let document = PDFDocument(data: data), document.pageCount > 0 else { return "" }
+
+            if document.pageCount <= maximumPagesForEmbeddedTextScan,
+               let embedded = document.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+               embedded.count > 80 {
+                return clipped(embedded)
+            }
+
+            // No usable text layer (or too many pages to safely trust one) —
+            // OCR pages one at a time, so only a single rendered page is
+            // ever in memory at once rather than the whole document's worth
+            // at 2x scale.
+            var pages: [String] = []
+            let pageLimit = min(document.pageCount, maximumOCRPages)
+            for index in 0 ..< pageLimit {
+                if Task.isCancelled { break }
+                guard let image = PDFBuilder.renderedPage(from: document, at: index) else { continue }
+                if let text = await recognize(image), !text.isEmpty { pages.append(text) }
+            }
+            return clipped(pages.joined(separator: "\n"))
         }
-        let images = PDFBuilder.pageImages(from: data)
-        return await text(from: images)
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     static func text(from images: [UIImage]) async -> String {
         var pages: [String] = []
         for image in images {
+            if Task.isCancelled { break }
             if let page = await recognize(image), !page.isEmpty { pages.append(page) }
         }
-        return pages.joined(separator: "\n")
+        return clipped(pages.joined(separator: "\n"))
     }
 
     /// One image through Vision's accurate recogniser.
+    ///
+    /// `VNImageRequestHandler.perform(_:)` is completion-handler based, not
+    /// natively async, and it has a known sharp edge: when it fails it can
+    /// invoke the request's completion handler *and* throw for the same
+    /// failure. Resuming a checked continuation twice is a crash, so every
+    /// path here goes through `ResumeGuard`, which only lets the first one
+    /// through. A timer covers the case Vision never calls back at all —
+    /// there's no official timeout on `VNRecognizeTextRequest`, and a stuck
+    /// request must not hang the caller forever.
+    ///
+    /// Every step here — the downscale, the `cgImage` extraction, building
+    /// the request and calling `handler.perform` — is CPU work with no
+    /// suspension point before the continuation, so it all happens inside
+    /// the `DispatchQueue.global` block rather than before it: this function
+    /// is called from `@MainActor` code, and with no actor isolation of its
+    /// own it would otherwise run that work on the caller's thread right up
+    /// to the point it actually suspends. Only cheap setup (allocating the
+    /// guard, scheduling the two blocks below) runs on the caller's thread.
     static func recognize(_ image: UIImage) async -> String? {
-        guard let cgImage = image.cgImage else { return nil }
+        await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            let guardBox = ResumeGuard()
 
-        return await withCheckedContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, _ in
-                let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-                continuation.resume(returning: lines.joined(separator: "\n"))
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + recognitionTimeout) {
+                guardBox.resumeOnce { continuation.resume(returning: nil) }
             }
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            // Indian paperwork is overwhelmingly English, and adding scripts
-            // Vision must disambiguate between makes it slower and no better.
-            request.recognitionLanguages = ["en-IN", "en-US"]
 
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             DispatchQueue.global(qos: .userInitiated).async {
+                let scaled = downscaledForRecognition(image)
+                guard let cgImage = scaled.cgImage, cgImage.width > 0, cgImage.height > 0 else {
+                    guardBox.resumeOnce { continuation.resume(returning: nil) }
+                    return
+                }
+
+                let request = VNRecognizeTextRequest { request, _ in
+                    let observations = request.results as? [VNRecognizedTextObservation] ?? []
+                    let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+                    guardBox.resumeOnce { continuation.resume(returning: lines.joined(separator: "\n")) }
+                }
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                // Indian paperwork is overwhelmingly English, and adding
+                // scripts Vision must disambiguate between makes it slower
+                // and no better.
+                request.recognitionLanguages = ["en-IN", "en-US"]
+
+                let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
                 do {
                     try handler.perform([request])
                 } catch {
-                    continuation.resume(returning: nil)
+                    // Vision may already have invoked the completion handler
+                    // above for this same failure — resumeOnce makes either
+                    // order, or both, safe.
+                    guardBox.resumeOnce { continuation.resume(returning: nil) }
                 }
             }
         }
+    }
+
+    /// Lets exactly one of several racing callbacks resume a continuation.
+    private final class ResumeGuard: @unchecked Sendable {
+        private let lock = NSLock()
+        private var hasResumed = false
+
+        func resumeOnce(_ body: () -> Void) {
+            lock.lock()
+            let alreadyResumed = hasResumed
+            hasResumed = true
+            lock.unlock()
+            guard !alreadyResumed else { return }
+            body()
+        }
+    }
+
+    /// How long we'll wait for Vision before giving up on one page/photo.
+    private static let recognitionTimeout: TimeInterval = 25
+
+    /// Accurate-mode text recognition doesn't get better past a few thousand
+    /// pixels on the long edge, but a full-resolution scan or a picked photo
+    /// can be many times that — holding it, and Vision's internal buffers
+    /// for it, at full size is memory an older phone doesn't have to spare.
+    private static let maximumRecognitionLongEdge: CGFloat = 3_000
+
+    private static func downscaledForRecognition(_ image: UIImage) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maximumRecognitionLongEdge, longest > 0 else { return image }
+        let factor = maximumRecognitionLongEdge / longest
+        let size = CGSize(width: image.size.width * factor, height: image.size.height * factor)
+
+        // Force scale 1: the point size we just computed should equal the
+        // pixel size that goes into Vision, not that times the device's
+        // screen scale.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 
     /// Trimmed to what an item record can reasonably carry.
@@ -65,5 +192,10 @@ enum TextRecognizer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleaned.count > ItemAttachment.maximumExtractedCharacters else { return cleaned }
         return String(cleaned.prefix(ItemAttachment.maximumExtractedCharacters))
+    }
+
+    private static func clipped(_ text: String) -> String {
+        guard text.count > maximumRawTextLength else { return text }
+        return String(text.prefix(maximumRawTextLength))
     }
 }

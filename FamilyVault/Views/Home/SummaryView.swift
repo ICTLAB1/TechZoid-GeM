@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 /// The whole financial picture on one screen, built from the money fields
@@ -8,6 +9,42 @@ struct SummaryView: View {
     var body: some View {
         List {
             let summary = store.summary
+            let history = store.netWorthHistory()
+
+            if history.count >= 2 {
+                Section {
+                    Chart(history) { snapshot in
+                        LineMark(
+                            x: .value("Month", snapshot.month, unit: .month),
+                            y: .value("Net worth", snapshot.netWorth)
+                        )
+                        .foregroundStyle(Theme.accent)
+                        .interpolationMethod(.monotone)
+
+                        AreaMark(
+                            x: .value("Month", snapshot.month, unit: .month),
+                            y: .value("Net worth", snapshot.netWorth)
+                        )
+                        .foregroundStyle(Theme.accent.opacity(0.12))
+                        .interpolationMethod(.monotone)
+                    }
+                    .chartYAxis {
+                        AxisMarks { _ in AxisGridLine() }
+                    }
+                    .chartXAxis {
+                        AxisMarks(values: .stride(by: .month)) { _ in
+                            AxisGridLine()
+                            AxisValueLabel(format: .dateTime.month(.abbreviated))
+                        }
+                    }
+                    .frame(height: 160)
+                    .padding(.vertical, 6)
+                } header: {
+                    Text("Net worth over time")
+                } footer: {
+                    Text("Investments at current value, minus loans outstanding. Recorded once a month from what's in the vault right now.")
+                }
+            }
 
             Section {
                 MoneyRow(label: "Total life & health cover", value: summary.insuranceCover, tint: ItemCategory.insurance.tint)

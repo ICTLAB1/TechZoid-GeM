@@ -626,6 +626,35 @@ final class VaultStore: ObservableObject {
             .sorted { $0.month < $1.month }
     }
 
+    // MARK: - Net worth history
+
+    /// Captures this month's summary as a snapshot, once per calendar month. Safe to call
+    /// often (e.g., after every sync) — no-ops if this month already has one.
+    func recordNetWorthSnapshotIfNeeded() {
+        let calendar = Calendar.current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) else { return }
+        let alreadyCaptured = file.netWorthSnapshots.contains {
+            calendar.isDate($0.month, equalTo: monthStart, toGranularity: .month)
+        }
+        guard !alreadyCaptured else { return }
+
+        let current = summary
+        let snapshot = NetWorthSnapshot(
+            month: monthStart,
+            cover: current.insuranceCover,
+            invested: current.currentValue,
+            outstanding: current.loanOutstanding,
+            netWorth: current.currentValue - current.loanOutstanding
+        )
+        file.netWorthSnapshots.append(snapshot)
+        persist()
+    }
+
+    /// Up to `months` most recent snapshots, oldest first, ready for charting.
+    func netWorthHistory(months: Int = 12) -> [NetWorthSnapshot] {
+        Array(file.netWorthSnapshots.sorted { $0.month < $1.month }.suffix(months))
+    }
+
     // MARK: - Passphrase rotation
 
     /// Stores re-wrapped key material and pushes it so the other phone picks it up.
@@ -747,6 +776,7 @@ final class VaultStore: ObservableObject {
 
         persist()
         refreshPublished()
+        recordNetWorthSnapshotIfNeeded()
         lastSyncedAt = Date()
     }
 

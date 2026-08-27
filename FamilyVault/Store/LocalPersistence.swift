@@ -17,6 +17,9 @@ struct VaultFile: Codable {
     var attachmentIDsToDelete: [String]
     var metaNeedsPush: Bool
     var savedAt: Date
+    /// Local-only history of the summary tiles, one per calendar month —
+    /// derived data, never synced to CloudKit.
+    var netWorthSnapshots: [NetWorthSnapshot]
 
     static let currentSchemaVersion = 1
 
@@ -31,7 +34,8 @@ struct VaultFile: Codable {
             pendingAttachmentIDs: [],
             attachmentIDsToDelete: [],
             metaNeedsPush: false,
-            savedAt: Date()
+            savedAt: Date(),
+            netWorthSnapshots: []
         )
     }
 }
@@ -52,6 +56,7 @@ extension VaultFile {
         attachmentIDsToDelete = (try? container.decode([String].self, forKey: .attachmentIDsToDelete)) ?? []
         metaNeedsPush = (try? container.decode(Bool.self, forKey: .metaNeedsPush)) ?? false
         savedAt = (try? container.decode(Date.self, forKey: .savedAt)) ?? Date()
+        netWorthSnapshots = (try? container.decode([NetWorthSnapshot].self, forKey: .netWorthSnapshots)) ?? []
     }
 }
 

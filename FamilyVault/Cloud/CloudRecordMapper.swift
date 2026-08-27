@@ -144,8 +144,14 @@ enum CloudRecordMapper {
         if let systemFields,
            let coder = try? NSKeyedUnarchiver(forReadingFrom: systemFields) {
             coder.requiresSecureCoding = true
+            // `finishDecoding()` must be called before the unarchiver goes
+            // away no matter how decoding turns out — the original code only
+            // called it on the success path, so a corrupt/incompatible blob
+            // (e.g. after an app update changes what CKRecord archives) would
+            // skip it and trip NSKeyedUnarchiver's "finishDecoding was never
+            // called" assertion instead of falling back cleanly.
+            defer { coder.finishDecoding() }
             if let record = CKRecord(coder: coder) {
-                coder.finishDecoding()
                 return record
             }
         }

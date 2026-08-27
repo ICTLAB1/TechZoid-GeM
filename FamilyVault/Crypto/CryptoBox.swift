@@ -54,3 +54,40 @@ enum CryptoBox {
 extension SymmetricKey {
     var rawData: Data { withUnsafeBytes { Data($0) } }
 }
+
+// MARK: - Best-effort memory wiping
+
+/// Swift's `Data`/`Array` give no hard guarantee that a buffer was never
+/// copied elsewhere before this runs, but overwriting our own copy of
+/// sensitive bytes (derived keys, raw passphrase bytes) as soon as we're
+/// done with it keeps key material from lingering in freed heap memory any
+/// longer than necessary.
+extension Data {
+    mutating func secureZeroOut() {
+        withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            guard let base = raw.baseAddress, raw.count > 0 else { return }
+            let typed = base.bindMemory(to: UInt8.self, capacity: raw.count)
+            for i in 0..<raw.count { typed[i] = 0 }
+        }
+    }
+}
+
+extension Array where Element == UInt8 {
+    mutating func secureZeroOut() {
+        withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            guard let base = raw.baseAddress, raw.count > 0 else { return }
+            let typed = base.bindMemory(to: UInt8.self, capacity: raw.count)
+            for i in 0..<raw.count { typed[i] = 0 }
+        }
+    }
+}
+
+extension Array where Element == Int8 {
+    mutating func secureZeroOut() {
+        withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            guard let base = raw.baseAddress, raw.count > 0 else { return }
+            let typed = base.bindMemory(to: UInt8.self, capacity: raw.count)
+            for i in 0..<raw.count { typed[i] = 0 }
+        }
+    }
+}

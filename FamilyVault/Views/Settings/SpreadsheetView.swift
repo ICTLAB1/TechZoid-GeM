@@ -14,6 +14,8 @@ struct SpreadsheetView: View {
     @State private var maskOnExport = true
     @State private var exportFile: BackupFile?
     @State private var isExporting = false
+    @State private var isExportingPayments = false
+    @State private var isExportingActivity = false
 
     var body: some View {
         Form {
@@ -70,6 +72,34 @@ struct SpreadsheetView: View {
                         .foregroundStyle(.red)
                 }
             }
+
+            Section {
+                Button {
+                    runPaymentsExport()
+                } label: {
+                    HStack {
+                        Label("Export payments as CSV", systemImage: "indianrupeesign.circle")
+                        Spacer()
+                        if isExportingPayments { ProgressView() }
+                    }
+                }
+                .disabled(store.items.allSatisfy { $0.payments.isEmpty } || isExportingPayments)
+
+                Button {
+                    runActivityExport()
+                } label: {
+                    HStack {
+                        Label("Export activity log as CSV", systemImage: "clock.arrow.circlepath")
+                        Spacer()
+                        if isExportingActivity { ProgressView() }
+                    }
+                }
+                .disabled(store.recentActivity().isEmpty || isExportingActivity)
+            } header: {
+                Text("Records")
+            } footer: {
+                Text("Separate spreadsheets of every payment you've logged and every change made to the vault, useful for reconciling with bank statements or reviewing who changed what.")
+            }
         }
         .navigationTitle("Spreadsheet")
         .navigationBarTitleDisplayMode(.inline)
@@ -121,5 +151,31 @@ struct SpreadsheetView: View {
             message = error.localizedDescription
         }
         isExporting = false
+    }
+
+    private func runPaymentsExport() {
+        isExportingPayments = true
+        let csv = SpreadsheetService.paymentsCSV(for: store.items)
+        do {
+            let stamp = Date().formatted(.iso8601.year().month().day())
+            let url = try SpreadsheetService.write(csv: csv, filename: "Payments-\(stamp).csv")
+            exportFile = BackupFile(url: url)
+        } catch {
+            message = error.localizedDescription
+        }
+        isExportingPayments = false
+    }
+
+    private func runActivityExport() {
+        isExportingActivity = true
+        let csv = SpreadsheetService.activityCSV(for: store.recentActivity())
+        do {
+            let stamp = Date().formatted(.iso8601.year().month().day())
+            let url = try SpreadsheetService.write(csv: csv, filename: "Activity-\(stamp).csv")
+            exportFile = BackupFile(url: url)
+        } catch {
+            message = error.localizedDescription
+        }
+        isExportingActivity = false
     }
 }

@@ -86,8 +86,13 @@ actor CloudKitService {
         if let cachedScope { return cachedScope }
         try await requireAccount()
 
-        // An accepted share shows up as a zone in the shared database.
-        let sharedZones = (try? await container.sharedCloudDatabase.allRecordZones()) ?? []
+        // An accepted share shows up as a zone in the shared database. Note
+        // this is NOT wrapped in `try?`: silently treating a transient
+        // failure here as "no shared zone" would misclassify a participant
+        // device as the owner and send it down the zone-creation path below,
+        // fragmenting one vault into two. Let real errors propagate — the
+        // retry wrapper already absorbs the transient ones.
+        let sharedZones = try await withRetry { try await container.sharedCloudDatabase.allRecordZones() }
         if let zone = sharedZones.first(where: { $0.zoneID.zoneName == Self.zoneName }) {
             let scope = VaultScope.participant(zone.zoneID)
             cachedScope = scope
@@ -96,11 +101,13 @@ actor CloudKitService {
 
         // Otherwise this device owns (or is about to create) the vault zone.
         let zoneID = CKRecordZone.ID(zoneName: Self.zoneName, ownerName: CKCurrentUserDefaultName)
-        let existing = (try? await container.privateCloudDatabase.allRecordZones()) ?? []
+        let existing = try await withRetry { try await container.privateCloudDatabase.allRecordZones() }
         if !existing.contains(where: { $0.zoneID.zoneName == Self.zoneName }) {
-            _ = try await container.privateCloudDatabase.modifyRecordZones(
-                saving: [CKRecordZone(zoneID: zoneID)], deleting: []
-            )
+            _ = try await withRetry {
+                try await container.privateCloudDatabase.modifyRecordZones(
+                    saving: [CKRecordZone(zoneID: zoneID)], deleting: []
+                )
+            }
             // The very first write into a brand-new zone can land moments
             // before the server has finished making that zone durable, and
             // comes back as a bare "server rejected the request" with no
@@ -116,9 +123,22 @@ actor CloudKitService {
 
     private func confirmZoneIsReady(_ zoneID: CKRecordZone.ID) async throws {
         for attempt in 0..<4 {
-            let zones = (try? await container.privateCloudDatabase.allRecordZones()) ?? []
-            if zones.contains(where: { $0.zoneID == zoneID }) { return }
-            try? await Task.sleep(nanoseconds: UInt64(300_000_000 * (attempt + 1)))
+            do {
+                // A zone appearing in `allRecordZones()` proves nothing: that
+                // list already reflects the zone the instant
+                // `modifyRecordZones` returns, so checking it back never
+                // actually waits for anything and the original version of
+                // this method returned on its very first check every time.
+                // A real probe has to touch the zone the way a subsequent
+                // write will — fetching zone changes (even against an empty,
+                // brand-new zone) exercises the same server path that a
+                // premature write trips over.
+                _ = try await container.privateCloudDatabase.recordZoneChanges(inZoneWith: zoneID, since: nil)
+                return
+            } catch {
+                if attempt == 3 { return } // best effort; VaultStore's first-sync retry is the backstop
+                try? await Task.sleep(nanoseconds: UInt64(300_000_000 * (attempt + 1)))
+            }
         }
     }
 
@@ -144,7 +164,9 @@ actor CloudKitService {
 
         while moreComing {
             do {
-                let batch = try await db.recordZoneChanges(inZoneWith: scope.zoneID, since: currentToken)
+                let batch = try await withRetry {
+                    try await db.recordZoneChanges(inZoneWith: scope.zoneID, since: currentToken)
+                }
                 for (_, modificationResult) in batch.modificationResultsByID {
                     if case .success(let modification) = modificationResult {
                         result.changedRecords.append(modification.record)
@@ -174,7 +196,7 @@ actor CloudKitService {
         let db = database(for: scope)
         let id = CKRecord.ID(recordName: name, zoneID: scope.zoneID)
         do {
-            return try await db.record(for: id)
+            return try await withRetry { try await db.record(for: id) }
         } catch let error as CKError where error.code == .unknownItem {
             return nil
         }
@@ -199,13 +221,22 @@ actor CloudKitService {
 
         // CloudKit caps a single request at 400 records; stay well under it.
         for chunk in records.chunked(into: 200) {
-            let response = try await db.modifyRecords(saving: chunk, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: false)
+            let response = try await withRetry {
+                try await db.modifyRecords(saving: chunk, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: false)
+            }
             for (_, result) in response.saveResults {
                 switch result {
                 case .success(let record):
                     outcome.saved.append(record)
                 case .failure(let error as CKError) where error.code == .serverRecordChanged:
-                    if let serverRecord = error.serverRecord { outcome.conflicted.append(serverRecord) }
+                    if let serverRecord = error.serverRecord {
+                        outcome.conflicted.append(serverRecord)
+                    } else {
+                        // Shouldn't happen for this error code, but don't
+                        // silently drop the local edit if it does — surface
+                        // it so the caller knows this record didn't sync.
+                        throw error
+                    }
                 case .failure(let error):
                     throw error
                 }
@@ -213,7 +244,9 @@ actor CloudKitService {
         }
 
         for chunk in recordIDs.chunked(into: 200) {
-            _ = try await db.modifyRecords(saving: [], deleting: chunk, savePolicy: .changedKeys, atomically: false)
+            _ = try await withRetry {
+                try await db.modifyRecords(saving: [], deleting: chunk, savePolicy: .changedKeys, atomically: false)
+            }
         }
 
         return outcome
@@ -227,15 +260,28 @@ actor CloudKitService {
         let db = container.privateCloudDatabase
         let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
 
-        if let existing = try? await db.record(for: shareID) as? CKShare {
-            return existing
+        // Only treat "genuinely no share yet" (.unknownItem) as license to
+        // create one. Swallowing every error here (the original `try?`)
+        // meant a plain network blip while checking for an existing share
+        // looked identical to "there is no share" — and then the code below
+        // would try to create a brand-new share on top of one that already
+        // existed, failing with a confusing `.serverRecordChanged` instead
+        // of a clean retry.
+        do {
+            if let existing = try await withRetry({ try await db.record(for: shareID) }) as? CKShare {
+                return existing
+            }
+        } catch let error as CKError where error.code == .unknownItem {
+            // No share yet — fall through and create one.
         }
 
         let share = CKShare(recordZoneID: zoneID)
         share[CKShare.SystemFieldKey.title] = title as CKRecordValue
         share.publicPermission = .none   // invitation-only, never a public link
 
-        let response = try await db.modifyRecords(saving: [share], deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
+        let response = try await withRetry {
+            try await db.modifyRecords(saving: [share], deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true)
+        }
         guard let outcome = response.saveResults[shareID] else { return share }
         switch outcome {
         case .success(let record):
@@ -248,7 +294,7 @@ actor CloudKitService {
     func currentShare(scope: VaultScope) async -> CKShare? {
         let db = database(for: scope)
         let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: scope.zoneID)
-        return try? await db.record(for: shareID) as? CKShare
+        return try? await withRetry { try await db.record(for: shareID) } as? CKShare
     }
 
     /// Revokes the partner's access (owner only).
@@ -257,14 +303,16 @@ actor CloudKitService {
         for participant in share.participants where participant.role != .owner {
             share.removeParticipant(participant)
         }
-        _ = try await container.privateCloudDatabase.modifyRecords(
-            saving: [share], deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true
-        )
+        _ = try await withRetry {
+            try await container.privateCloudDatabase.modifyRecords(
+                saving: [share], deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: true
+            )
+        }
     }
 
     /// Called when the partner taps the invitation link.
     func accept(_ metadata: CKShare.Metadata) async throws {
-        _ = try await container.accept(metadata)
+        _ = try await withRetry { try await container.accept(metadata) }
         cachedScope = nil
     }
 
@@ -274,14 +322,66 @@ actor CloudKitService {
         let db = database(for: scope)
         let subscriptionID = scope.isOwner ? "vault-private-changes" : "vault-shared-changes"
 
-        let existing = try? await db.subscription(for: subscriptionID)
-        guard existing == nil else { return }
+        do {
+            _ = try await withRetry { try await db.subscription(for: subscriptionID) }
+            return // already subscribed from a previous launch — nothing to do
+        } catch let error as CKError where error.code == .unknownItem {
+            // No subscription yet — create one below.
+        } catch {
+            // Couldn't tell either way (e.g. exhausted retries on a network
+            // failure). Don't risk racing a duplicate-create against
+            // whatever state the server is actually in; try again next launch.
+            return
+        }
 
         let subscription = CKDatabaseSubscription(subscriptionID: subscriptionID)
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true   // silent: no banner, just a nudge to sync
         subscription.notificationInfo = info
-        _ = try? await db.save(subscription)
+        _ = try? await withRetry { try await db.save(subscription) }
+    }
+
+    // MARK: - Resilience
+
+    /// CloudKit's own throttling (`requestRateLimited`) and short transient
+    /// outages (`zoneBusy`, `networkFailure`, ...) resolve themselves within
+    /// seconds. A resilient sync layer waits them out with bounded backoff
+    /// instead of surfacing a failure to the user on the first hiccup.
+    private static let maxRetryAttempts = 4
+
+    private func withRetry<T>(_ operation: () async throws -> T) async throws -> T {
+        var attempt = 0
+        while true {
+            do {
+                return try await operation()
+            } catch let error as CKError where Self.isTransient(error) {
+                attempt += 1
+                guard attempt < Self.maxRetryAttempts else { throw error }
+                try? await Task.sleep(nanoseconds: Self.retryDelay(for: error, attempt: attempt))
+            }
+        }
+    }
+
+    private static func isTransient(_ error: CKError) -> Bool {
+        switch error.code {
+        case .requestRateLimited, .zoneBusy, .networkFailure, .networkUnavailable, .serviceUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// CloudKit sometimes tells us exactly how long to wait
+    /// (`retryAfterSeconds`, always present on `requestRateLimited`); when it
+    /// doesn't, fall back to capped exponential backoff with a little jitter
+    /// so two devices retrying at once don't lockstep.
+    private static func retryDelay(for error: CKError, attempt: Int) -> UInt64 {
+        if let hinted = error.retryAfterSeconds, hinted > 0 {
+            return UInt64(hinted * 1_000_000_000)
+        }
+        let backoff = min(8.0, 0.5 * pow(2.0, Double(attempt - 1)))
+        let jitter = Double.random(in: 0...0.25)
+        return UInt64((backoff + jitter) * 1_000_000_000)
     }
 }
 
