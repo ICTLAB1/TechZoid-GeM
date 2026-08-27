@@ -1,10 +1,21 @@
 import CloudKit
 import SwiftUI
 
-/// Change this to the iCloud container you create in Signing & Capabilities.
-/// It must match the entry in FamilyVault.entitlements.
 enum AppConfiguration {
-    static let cloudContainerIdentifier = "iCloud.com.example.familyvault"
+
+    /// The iCloud container, worked out from the app's own bundle identifier.
+    ///
+    /// Set the bundle identifier in Signing & Capabilities, add a CloudKit
+    /// container named `iCloud.` + that identifier, and this matches it
+    /// automatically. Hard-coding the string here was one edit too many: get it
+    /// a character wrong and the app builds, runs, and silently never syncs.
+    static let cloudContainerIdentifier: String = {
+        guard let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty else {
+            return "iCloud.com.example.familyvault"
+        }
+        return "iCloud.\(bundleID)"
+    }()
+
     static let vaultShareTitle = "Our Family Vault"
 }
 

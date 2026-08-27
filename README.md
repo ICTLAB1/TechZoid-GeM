@@ -343,12 +343,14 @@ Select the **FamilyVault** target → **Signing & Capabilities**:
 4. **Push Notifications** capability — add it (used for silent sync nudges).
 5. **Background Modes** capability → tick **Remote notifications**.
 
-Then update the two places the container name is written down:
+**There is no code to edit.** The app derives its container from its own bundle
+identifier, so as long as the container is named `iCloud.` + your bundle id,
+they match by construction. Adding it in Xcode also rewrites
+`FamilyVault.entitlements` for you.
 
-- `FamilyVault/FamilyVault.entitlements` → `com.apple.developer.icloud-container-identifiers`
-- `FamilyVault/App/FamilyVaultApp.swift` → `AppConfiguration.cloudContainerIdentifier`
-
-Both must match the container you created, exactly.
+If you deliberately want a container whose name *doesn't* follow that pattern,
+override `AppConfiguration.cloudContainerIdentifier` in
+`FamilyVault/App/FamilyVaultApp.swift`.
 
 ### 2. Run it on your phone
 
