@@ -713,20 +713,50 @@ final class VaultStore: ObservableObject {
         syncState = .syncing
 
         do {
-            let scope = try await cloud.resolveScope()
-            self.scope = scope
-            await cloud.subscribeToChanges(scope: scope)
-
-            try await pull(scope: scope, key: dataKey)
-            try await push(scope: scope, key: dataKey)
-            purgeExpiredTrash()
-
-            persist()
-            refreshPublished()
-            lastSyncedAt = Date()
+            try await attemptSync(dataKey: dataKey)
             syncState = .idle
         } catch {
-            syncState = .failed(friendlyMessage(for: error))
+            // A device's very first sync ever is also the moment its private
+            // zone was just created, which can reject the first write or two
+            // before the server has fully caught up. That is invisible and
+            // self-correcting, so it deserves one quiet retry rather than an
+            // alarming error on someone's first launch of the app.
+            if lastSyncedAt == nil, isTransient(error) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                do {
+                    try await attemptSync(dataKey: dataKey)
+                    syncState = .idle
+                    return
+                } catch {
+                    syncState = .failed(friendlyMessage(for: error))
+                }
+            } else {
+                syncState = .failed(friendlyMessage(for: error))
+            }
+        }
+    }
+
+    private func attemptSync(dataKey: SymmetricKey) async throws {
+        let scope = try await cloud.resolveScope()
+        self.scope = scope
+        await cloud.subscribeToChanges(scope: scope)
+
+        try await pull(scope: scope, key: dataKey)
+        try await push(scope: scope, key: dataKey)
+        purgeExpiredTrash()
+
+        persist()
+        refreshPublished()
+        lastSyncedAt = Date()
+    }
+
+    private func isTransient(_ error: Error) -> Bool {
+        guard let ckError = error as? CKError else { return false }
+        switch ckError.code {
+        case .serverRejectedRequest, .zoneBusy, .networkFailure, .networkUnavailable, .requestRateLimited:
+            return true
+        default:
+            return false
         }
     }
 

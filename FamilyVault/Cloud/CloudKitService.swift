@@ -101,10 +101,25 @@ actor CloudKitService {
             _ = try await container.privateCloudDatabase.modifyRecordZones(
                 saving: [CKRecordZone(zoneID: zoneID)], deleting: []
             )
+            // The very first write into a brand-new zone can land moments
+            // before the server has finished making that zone durable, and
+            // comes back as a bare "server rejected the request" with no
+            // useful detail. This only ever happens once — the first time a
+            // vault is ever created — so a short, bounded wait here is
+            // cheaper than surfacing a confusing error on first launch.
+            try await confirmZoneIsReady(zoneID)
         }
         let scope = VaultScope.owner(zoneID)
         cachedScope = scope
         return scope
+    }
+
+    private func confirmZoneIsReady(_ zoneID: CKRecordZone.ID) async throws {
+        for attempt in 0..<4 {
+            let zones = (try? await container.privateCloudDatabase.allRecordZones()) ?? []
+            if zones.contains(where: { $0.zoneID == zoneID }) { return }
+            try? await Task.sleep(nanoseconds: UInt64(300_000_000 * (attempt + 1)))
+        }
     }
 
     func invalidateScope() {
