@@ -83,7 +83,7 @@ struct BenefitSummary {
 
         if let helpline = item.value(forLabel: "Claim helpline") {
             lines.append(Line(icon: "phone.fill", text: "To claim, call \(helpline)\(insurer.isEmpty ? "" : " at \(insurer)")."))
-        } else if let agent = item.value(forLabel: "Agent contact") {
+        } else if let agent = item.value(forLabel: "Agent / advisor") {
             lines.append(Line(icon: "phone.fill", text: "Agent: \(agent)."))
         }
 

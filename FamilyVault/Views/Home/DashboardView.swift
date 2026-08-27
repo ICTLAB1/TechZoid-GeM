@@ -8,6 +8,7 @@ struct DashboardView: View {
 
     @State private var newItemCategory: ItemCategory?
     @State private var showingCategoryPicker = false
+    @State private var justCreatedItem: VaultItem?
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -72,7 +73,14 @@ struct DashboardView: View {
                 Button("Cancel", role: .cancel) {}
             }
             .sheet(item: $newItemCategory) { category in
-                ItemEditorView(item: CategoryTemplates.newItem(category: category), isNew: true)
+                ItemEditorView(
+                    item: CategoryTemplates.newItem(category: category),
+                    isNew: true,
+                    onSaved: { justCreatedItem = $0 }
+                )
+            }
+            .sheet(item: $justCreatedItem) { item in
+                NavigationStack { ItemDetailView(itemID: item.id) }
             }
         }
     }

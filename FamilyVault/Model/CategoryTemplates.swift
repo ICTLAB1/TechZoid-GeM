@@ -18,7 +18,6 @@ enum CategoryTemplates {
                 ItemField(label: "Customer ID", kind: .secret),
                 ItemField(label: "Net banking username", kind: .secret),
                 ItemField(label: "Net banking password", kind: .secret),
-                ItemField(label: "Transaction / profile password", kind: .secret),
                 ItemField(label: "Registered mobile", kind: .phone),
                 ItemField(label: "UPI ID", kind: .text),
                 ItemField(label: "Nominee", kind: .text)
@@ -54,8 +53,7 @@ enum CategoryTemplates {
                 ItemField(label: "Start date", kind: .date),
                 ItemField(label: "Maturity date", kind: .date),
                 ItemField(label: "Nominee", kind: .text),
-                ItemField(label: "Agent / advisor", kind: .text),
-                ItemField(label: "Agent contact", kind: .phone),
+                ItemField(label: "Agent / advisor", kind: .phone),
                 ItemField(label: "Claim helpline", kind: .phone),
                 ItemField(label: "Portal login", kind: .secret)
             ]
@@ -100,8 +98,7 @@ enum CategoryTemplates {
                 ItemField(label: "Date of birth", kind: .date),
                 ItemField(label: "Issued on", kind: .date),
                 ItemField(label: "Valid until", kind: .date),
-                ItemField(label: "Issuing authority", kind: .text),
-                ItemField(label: "Linked mobile", kind: .phone)
+                ItemField(label: "Issuing authority", kind: .text)
             ]
 
         case .document:
@@ -135,8 +132,7 @@ enum CategoryTemplates {
                 ItemField(label: "Purchase date", kind: .date),
                 ItemField(label: "Purchase value", kind: .money),
                 ItemField(label: "Current value", kind: .money),
-                ItemField(label: "Where documents are kept", kind: .multiline),
-                ItemField(label: "Locker / safe details", kind: .secret)
+                ItemField(label: "Where documents are kept", kind: .multiline)
             ]
 
         case .note:

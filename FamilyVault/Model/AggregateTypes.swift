@@ -13,7 +13,7 @@ struct ContactCard: Identifiable {
     var id = UUID()
     var itemID: UUID
     var category: ItemCategory
-    /// "Claim helpline", "Agent contact", "Customer care".
+    /// "Claim helpline", "Agent / advisor", "Customer care".
     var label: String
     var number: String
     /// "LIC · Jeevan Anand"

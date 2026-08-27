@@ -8,9 +8,11 @@ struct VaultFile: Codable {
     var schemaVersion: Int
     var items: [VaultItem]
     var devices: [VaultDevice]
+    var familyMembers: [FamilyMember]
     var recordSystemFields: [String: Data]
     var pendingItemIDs: [String]
     var pendingDeviceIDs: [String]
+    var pendingFamilyMemberIDs: [String]
     /// Attachments whose bytes still have to go up to iCloud.
     var pendingAttachmentIDs: [String]
     /// Attachment records to delete from iCloud on the next sync.
@@ -28,9 +30,11 @@ struct VaultFile: Codable {
             schemaVersion: currentSchemaVersion,
             items: [],
             devices: [],
+            familyMembers: [],
             recordSystemFields: [:],
             pendingItemIDs: [],
             pendingDeviceIDs: [],
+            pendingFamilyMemberIDs: [],
             pendingAttachmentIDs: [],
             attachmentIDsToDelete: [],
             metaNeedsPush: false,
@@ -49,9 +53,11 @@ extension VaultFile {
         schemaVersion = (try? container.decode(Int.self, forKey: .schemaVersion)) ?? VaultFile.currentSchemaVersion
         items = (try? container.decode([VaultItem].self, forKey: .items)) ?? []
         devices = (try? container.decode([VaultDevice].self, forKey: .devices)) ?? []
+        familyMembers = (try? container.decode([FamilyMember].self, forKey: .familyMembers)) ?? []
         recordSystemFields = (try? container.decode([String: Data].self, forKey: .recordSystemFields)) ?? [:]
         pendingItemIDs = (try? container.decode([String].self, forKey: .pendingItemIDs)) ?? []
         pendingDeviceIDs = (try? container.decode([String].self, forKey: .pendingDeviceIDs)) ?? []
+        pendingFamilyMemberIDs = (try? container.decode([String].self, forKey: .pendingFamilyMemberIDs)) ?? []
         pendingAttachmentIDs = (try? container.decode([String].self, forKey: .pendingAttachmentIDs)) ?? []
         attachmentIDsToDelete = (try? container.decode([String].self, forKey: .attachmentIDsToDelete)) ?? []
         metaNeedsPush = (try? container.decode(Bool.self, forKey: .metaNeedsPush)) ?? false

@@ -5,6 +5,7 @@ struct CategoryItemsView: View {
 
     @EnvironmentObject private var store: VaultStore
     @State private var isAdding = false
+    @State private var justCreatedItem: VaultItem?
     @State private var pendingDeletion: VaultItem?
     @State private var sort: ItemSort = .name
     @State private var holderFilter: String?
@@ -12,9 +13,9 @@ struct CategoryItemsView: View {
 
     var body: some View {
         List {
-            if !store.holders.isEmpty && query.isEmpty {
+            if !filterHolders.isEmpty && query.isEmpty {
                 Section {
-                    HolderFilterBar(selection: $holderFilter, holders: store.holders)
+                    HolderFilterBar(selection: $holderFilter, holders: filterHolders)
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
                 .listRowBackground(Color.clear)
@@ -86,7 +87,10 @@ struct CategoryItemsView: View {
             }
         }
         .sheet(isPresented: $isAdding) {
-            ItemEditorView(item: newItem(), isNew: true)
+            ItemEditorView(item: newItem(), isNew: true, onSaved: { justCreatedItem = $0 })
+        }
+        .sheet(item: $justCreatedItem) { item in
+            NavigationStack { ItemDetailView(itemID: item.id) }
         }
         .confirmationDialog(
             "Delete “\(pendingDeletion?.displayTitle ?? "")”?",
@@ -101,6 +105,21 @@ struct CategoryItemsView: View {
         } message: {
             Text("It moves to Recently Deleted on both phones, and is destroyed for good after \(VaultStore.trashRetentionDays) days.")
         }
+    }
+
+    /// Named family members first (so a newly added person is filterable
+    /// before they have any entries yet), plus any older free-typed names
+    /// still in use that aren't part of the roster.
+    private var filterHolders: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for name in store.familyMembers.map(\.name) + store.holders {
+            let key = name.lowercased()
+            guard !key.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(name)
+        }
+        return ordered
     }
 
     private var items: [VaultItem] {

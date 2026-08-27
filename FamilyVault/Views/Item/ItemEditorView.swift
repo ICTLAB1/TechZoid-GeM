@@ -3,6 +3,7 @@ import SwiftUI
 struct ItemEditorView: View {
     @State var item: VaultItem
     var isNew: Bool
+    var onSaved: ((VaultItem) -> Void)? = nil
 
     @EnvironmentObject private var store: VaultStore
     @EnvironmentObject private var settings: AppSettings
@@ -36,11 +37,13 @@ struct ItemEditorView: View {
                 }
 
                 Section {
-                    HolderField(holder: $item.holder, suggestions: store.holders)
+                    HolderField(holder: $item.holder, suggestions: holderSuggestions)
                 } header: {
                     Text("Belongs to")
                 } footer: {
-                    Text("Whose account or policy this is. Used to filter each list — handy once both of you have entries in here.")
+                    Text(store.familyMembers.isEmpty
+                         ? "Whose account or policy this is. Add family members in Settings to pick from a list instead of typing a name each time."
+                         : "Whose account or policy this is. Used to filter each list — handy once everyone has entries in here.")
                 }
 
                 Section("Details") {
@@ -108,7 +111,13 @@ struct ItemEditorView: View {
                     Toggle("Pin to home screen", isOn: $item.isFavourite)
                 }
 
-                if !isNew {
+                if isNew {
+                    Section {
+                        Label("Save, and you'll land here ready to scan or attach documents.", systemImage: "doc.viewfinder")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
                     Section {
                         Text("Documents are added from the entry's own screen, after saving.")
                             .font(.footnote)
@@ -148,6 +157,21 @@ struct ItemEditorView: View {
                 }
             }
         }
+    }
+
+    /// Named family members first, so the picker steers toward the real
+    /// roster; any older free-typed names still in use tag along so nothing
+    /// already in the vault stops being offered.
+    private var holderSuggestions: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for name in store.familyMembers.map(\.name) + store.holders {
+            let key = name.lowercased()
+            guard !key.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append(name)
+        }
+        return ordered
     }
 
     /// "Next EMI date" reads oddly once it repeats; "First EMI date" doesn't.
@@ -225,6 +249,7 @@ struct ItemEditorView: View {
         if !toSave.holder.isEmpty { settings.lastHolder = toSave.holder }
 
         store.save(toSave)
+        onSaved?(toSave)
         dismiss()
     }
 }

@@ -11,6 +11,7 @@ struct DocumentsLibraryView: View {
     @State private var sharing: BackupFile?
     @State private var shareError: String?
     @State private var isAddingStandalone = false
+    @State private var justCreatedItem: VaultItem?
 
     var body: some View {
         Group {
@@ -84,7 +85,10 @@ struct DocumentsLibraryView: View {
             ShareSheet(activityItems: [file.url])
         }
         .sheet(isPresented: $isAddingStandalone) {
-            ItemEditorView(item: CategoryTemplates.newItem(category: .document), isNew: true)
+            ItemEditorView(item: CategoryTemplates.newItem(category: .document), isNew: true, onSaved: { justCreatedItem = $0 })
+        }
+        .sheet(item: $justCreatedItem) { item in
+            NavigationStack { ItemDetailView(itemID: item.id) }
         }
         .alert("Share", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
             Button("OK", role: .cancel) { shareError = nil }

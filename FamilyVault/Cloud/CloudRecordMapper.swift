@@ -97,6 +97,27 @@ enum CloudRecordMapper {
         return record
     }
 
+    // MARK: - Family members
+
+    static func familyMemberRecord(for member: FamilyMember, key: SymmetricKey, zoneID: CKRecordZone.ID, existingSystemFields: Data?) throws -> CKRecord {
+        let record = makeRecord(
+            type: CloudRecordType.familyMember,
+            name: member.id,
+            zoneID: zoneID,
+            systemFields: existingSystemFields
+        )
+        let json = try JSONEncoder.vault.encode(member)
+        record[Field.payload] = try CryptoBox.seal(json, key: key) as CKRecordValue
+        record[Field.updatedAt] = member.addedAt as CKRecordValue
+        return record
+    }
+
+    static func familyMember(from record: CKRecord, key: SymmetricKey) throws -> FamilyMember {
+        guard let payload = record[Field.payload] as? Data else { throw MappingError.missingPayload }
+        let json = try CryptoBox.open(payload, key: key)
+        return try JSONDecoder.vault.decode(FamilyMember.self, from: json)
+    }
+
     static func device(from record: CKRecord, key: SymmetricKey) throws -> VaultDevice {
         guard let payload = record[Field.payload] as? Data else { throw MappingError.missingPayload }
         let json = try CryptoBox.open(payload, key: key)

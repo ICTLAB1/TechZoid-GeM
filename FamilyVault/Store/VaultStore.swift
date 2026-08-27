@@ -43,6 +43,7 @@ final class VaultStore: ObservableObject {
     @Published private(set) var items: [VaultItem] = []
     @Published private(set) var deletedItems: [VaultItem] = []
     @Published private(set) var devices: [VaultDevice] = []
+    @Published private(set) var familyMembers: [FamilyMember] = []
     @Published private(set) var syncState: SyncState = .idle
     @Published private(set) var lastSyncedAt: Date?
     @Published private(set) var pendingChangeCount: Int = 0
@@ -98,6 +99,7 @@ final class VaultStore: ObservableObject {
         items = []
         deletedItems = []
         devices = []
+        familyMembers = []
         syncState = .idle
         pendingChangeCount = 0
     }
@@ -287,6 +289,10 @@ final class VaultStore: ObservableObject {
         if !file.pendingDeviceIDs.contains(id) { file.pendingDeviceIDs.append(id) }
     }
 
+    private func markPendingFamilyMember(_ id: String) {
+        if !file.pendingFamilyMemberIDs.contains(id) { file.pendingFamilyMemberIDs.append(id) }
+    }
+
     private func queueAttachmentDeletion(_ id: UUID) {
         file.pendingAttachmentIDs.removeAll { $0 == id.uuidString }
         if !file.attachmentIDsToDelete.contains(id.uuidString) {
@@ -314,8 +320,10 @@ final class VaultStore: ObservableObject {
         deletedItems = file.items.filter(\.isDeleted)
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
         devices = file.devices.sorted { $0.addedAt < $1.addedAt }
+        familyMembers = file.familyMembers.sorted { $0.addedAt < $1.addedAt }
         pendingChangeCount = file.pendingItemIDs.count
             + file.pendingDeviceIDs.count
+            + file.pendingFamilyMemberIDs.count
             + file.pendingAttachmentIDs.count
             + (file.metaNeedsPush ? 1 : 0)
         reminders.reschedule(for: items)
@@ -715,6 +723,53 @@ final class VaultStore: ObservableObject {
         persistAndSync()
     }
 
+    // MARK: - Family members
+
+    /// The shared roster of names entries can belong to — you, your wife,
+    /// your kids, anyone else — kept in sync on both phones so "Belongs to"
+    /// is a pick from a real list rather than whatever gets typed.
+    @discardableResult
+    func addFamilyMember(named name: String) -> FamilyMember? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let existing = file.familyMembers.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return existing
+        }
+        let member = FamilyMember.new(name: trimmed)
+        file.familyMembers.append(member)
+        markPendingFamilyMember(member.id)
+        persistAndSync()
+        return member
+    }
+
+    func renameFamilyMember(_ member: FamilyMember, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = file.familyMembers.firstIndex(where: { $0.id == member.id }) else { return }
+        let oldName = file.familyMembers[index].name
+        file.familyMembers[index].name = trimmed
+        markPendingFamilyMember(member.id)
+
+        // Existing entries already tagged with the old name follow the rename,
+        // so nothing looks orphaned just because a name changed.
+        for index in file.items.indices where file.items[index].holder.caseInsensitiveCompare(oldName) == .orderedSame {
+            file.items[index].holder = trimmed
+            markPending(itemID: file.items[index].id.uuidString)
+        }
+        persistAndSync()
+    }
+
+    func removeFamilyMember(_ member: FamilyMember) {
+        file.familyMembers.removeAll { $0.id == member.id }
+        file.recordSystemFields.removeValue(forKey: member.id)
+        file.pendingFamilyMemberIDs.removeAll { $0 == member.id }
+        persistAndSync()
+
+        guard let scope else { return }
+        let recordID = CKRecord.ID(recordName: member.id, zoneID: scope.zoneID)
+        let cloud = self.cloud
+        Task { _ = try? await cloud.save(records: [], deleting: [recordID], scope: scope) }
+    }
+
     // MARK: - Sync
 
     /// Fire-and-forget sync, for callers that shouldn't wait (a save, a
@@ -827,6 +882,15 @@ final class VaultStore: ObservableObject {
                 }
                 file.recordSystemFields[remote.id] = CloudRecordMapper.systemFields(of: record)
 
+            case CloudRecordType.familyMember:
+                guard let remote = try? CloudRecordMapper.familyMember(from: record, key: key) else { continue }
+                if let index = file.familyMembers.firstIndex(where: { $0.id == remote.id }) {
+                    file.familyMembers[index] = remote
+                } else {
+                    file.familyMembers.append(remote)
+                }
+                file.recordSystemFields[remote.id] = CloudRecordMapper.systemFields(of: record)
+
             case CloudRecordType.attachment:
                 // The asset's temporary file disappears once this batch is
                 // released, so copy it into the store right now.
@@ -843,6 +907,7 @@ final class VaultStore: ObservableObject {
             let name = recordID.recordName
             file.recordSystemFields.removeValue(forKey: name)
             file.devices.removeAll { $0.id == name }
+            file.familyMembers.removeAll { $0.id == name }
             if let uuid = UUID(uuidString: name) {
                 file.items.removeAll { $0.id == uuid }
                 AttachmentStore.remove(uuid)
@@ -902,6 +967,15 @@ final class VaultStore: ObservableObject {
             records.append(record)
         }
 
+        for id in file.pendingFamilyMemberIDs {
+            guard let member = file.familyMembers.first(where: { $0.id == id }) else { continue }
+            let record = try CloudRecordMapper.familyMemberRecord(
+                for: member, key: key, zoneID: scope.zoneID,
+                existingSystemFields: file.recordSystemFields[id]
+            )
+            records.append(record)
+        }
+
         for id in file.pendingAttachmentIDs {
             guard let uuid = UUID(uuidString: id),
                   AttachmentStore.exists(uuid),
@@ -932,6 +1006,7 @@ final class VaultStore: ObservableObject {
         let savedNames = Set(outcome.saved.map(\.recordID.recordName))
         file.pendingItemIDs.removeAll { savedNames.contains($0) }
         file.pendingDeviceIDs.removeAll { savedNames.contains($0) }
+        file.pendingFamilyMemberIDs.removeAll { savedNames.contains($0) }
         file.pendingAttachmentIDs.removeAll { savedNames.contains($0) }
         for name in file.attachmentIDsToDelete { file.recordSystemFields.removeValue(forKey: name) }
         file.attachmentIDsToDelete.removeAll()

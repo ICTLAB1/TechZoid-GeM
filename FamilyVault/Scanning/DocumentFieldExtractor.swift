@@ -73,7 +73,7 @@ enum DocumentFieldExtractor {
                 Rule(label: "Start date", cues: ["date of commencement", "commencement date", "policy start", "risk commencement", "period of insurance from"], kind: .date),
                 Rule(label: "Maturity date", cues: ["date of maturity", "maturity date", "policy end", "expiry date", "period of insurance to"], kind: .date),
                 Rule(label: "Nominee", cues: ["nominee", "name of nominee", "nominee name", "beneficiary"], kind: .name, confidence: 0.88),
-                Rule(label: "Agent contact", cues: ["agent mobile", "agent contact", "advisor contact"], kind: .alphanumeric, confidence: 0.7),
+                Rule(label: "Agent / advisor", cues: ["agent mobile", "agent contact", "advisor contact"], kind: .alphanumeric, confidence: 0.7),
                 Rule(label: "Claim helpline", cues: ["toll free", "toll-free", "helpline", "customer care", "claim intimation"], kind: .alphanumeric, confidence: 0.75)
             ]
 

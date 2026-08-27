@@ -25,6 +25,7 @@ enum CloudRecordType {
     static let meta = "VaultMeta"
     static let device = "VaultDevice"
     static let attachment = "VaultAttachment"
+    static let familyMember = "VaultFamilyMember"
 }
 
 /// All CloudKit plumbing. It never sees plaintext: callers hand it sealed

@@ -42,6 +42,18 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    NavigationLink {
+                        FamilyMembersView()
+                    } label: {
+                        HStack {
+                            Label("Family Members", systemImage: "person.2.crop.square.stack")
+                            Spacer()
+                            if !store.familyMembers.isEmpty {
+                                Text("\(store.familyMembers.count)").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 Section {
