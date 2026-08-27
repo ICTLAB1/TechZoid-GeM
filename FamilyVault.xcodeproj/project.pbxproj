@@ -10,8 +10,26 @@
 		FV0000000000000000000001 /* FamilyVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FamilyVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FV0000000000000000000016 /* Exceptions for "FamilyVault" folder in "FamilyVault" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				FamilyVault.entitlements,
+			);
+			target = FV0000000000000000000006 /* FamilyVault */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		FV0000000000000000000002 /* FamilyVault */ = {isa = PBXFileSystemSynchronizedRootGroup; path = FamilyVault; sourceTree = "<group>"; };
+		FV0000000000000000000002 /* FamilyVault */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FV0000000000000000000016 /* Exceptions for "FamilyVault" folder in "FamilyVault" target */,
+			);
+			path = FamilyVault;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
