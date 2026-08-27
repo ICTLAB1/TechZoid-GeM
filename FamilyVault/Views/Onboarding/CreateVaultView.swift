@@ -32,7 +32,7 @@ struct CreateVaultView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                Section("Master passphrase") {
+                Section {
                     SecureField("Passphrase", text: $passphrase)
                         .textContentType(.newPassword)
                         .focused($focus, equals: .passphrase)
@@ -55,6 +55,8 @@ struct CreateVaultView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                } header: {
+                    Text("Master passphrase")
                 } footer: {
                     Text("Four unrelated words you both remember beats a short complicated one. Example: *marble-rickshaw-cardamom-92*")
                         .font(.caption)
