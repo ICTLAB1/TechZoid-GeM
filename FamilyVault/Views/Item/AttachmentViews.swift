@@ -399,25 +399,21 @@ struct AttachmentPicker: View {
         defer { progress = nil }
 
         for (offset, url) in urls.enumerated() {
-            let scoped = url.startAccessingSecurityScopedResource()
-            let data = try? Data(contentsOf: url)
-            if scoped { url.stopAccessingSecurityScopedResource() }
-
-            guard let data else {
-                errorMessage = "Could not read \(url.lastPathComponent)."
-                continue
+            do {
+                let document = try await DocumentIntake.imported(url)
+                attach(
+                    data: document.data,
+                    filename: document.filename,
+                    type: document.typeIdentifier,
+                    text: document.text,
+                    pageCount: document.pageCount
+                )
+                if offset == 0, !document.text.isEmpty {
+                    extractAndFill(from: document.text, documentName: document.filename)
+                }
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
-
-            let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? .data
-            var text = ""
-            if type.conforms(to: .pdf) {
-                text = await TextRecognizer.text(fromPDF: data)
-            } else if type.conforms(to: .image), let image = UIImage(data: data) {
-                text = await TextRecognizer.recognize(image) ?? ""
-            }
-
-            attach(data: data, filename: url.lastPathComponent, type: type.identifier, text: text, pageCount: nil)
-            if offset == 0, !text.isEmpty { extractAndFill(from: text, documentName: url.lastPathComponent) }
         }
     }
 

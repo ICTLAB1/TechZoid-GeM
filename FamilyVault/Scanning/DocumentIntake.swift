@@ -79,11 +79,19 @@ enum DocumentIntake {
     static func imported(_ url: URL) async throws -> CapturedDocument {
         let scoped = url.startAccessingSecurityScopedResource()
         let data = try? Data(contentsOf: url)
+        // Ask what kind of file this is *before* releasing the scope. A
+        // security-scoped URL from Files stops answering resourceValues the
+        // moment access ends, so reading it afterwards returned nil and every
+        // imported PDF fell back to "public.data" — which conforms to neither
+        // .pdf nor .image, so no text was ever extracted from an uploaded
+        // document. The file still attached, which is what made this look like
+        // an extraction problem rather than an import one.
+        let declared = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
         if scoped { url.stopAccessingSecurityScopedResource() }
 
         guard let data else { throw Failure.fileUnreadable(url.lastPathComponent) }
 
-        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? .data
+        let type = resolvedType(declared: declared, url: url, data: data)
         var text = ""
         if type.conforms(to: .pdf) {
             text = await TextRecognizer.text(fromPDF: data)
@@ -100,12 +108,30 @@ enum DocumentIntake {
         )
     }
 
-    /// The card itself rather than a bill about it.
+    /// What kind of file this actually is.
     ///
-    /// Returns the fields read off the plastic when that is what was scanned,
-    /// and nil otherwise. A card read this way is used and thrown away, never
-    /// filed: storing a picture of the card beside its number would put both
-    /// in one place for nothing.
+    /// Three answers in order of authority: what the system declared, what the
+    /// name says, and what the bytes themselves start with. The last one is
+    /// the backstop — a file provider that refuses to describe its file cannot
+    /// stop a PDF being read as a PDF.
+    private static func resolvedType(declared: UTType?, url: URL, data: Data) -> UTType {
+        // `.data`, `.item` and `.content` are "some file" — true of everything
+        // and useful for nothing.
+        let generic: Set<UTType> = [.data, .item, .content]
+        if let declared, !generic.contains(declared) { return declared }
+
+        let ext = url.pathExtension.lowercased()
+        if !ext.isEmpty, let byExtension = UTType(filenameExtension: ext), !generic.contains(byExtension) {
+            return byExtension
+        }
+
+        if data.starts(with: Array("%PDF".utf8)) { return .pdf }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return .jpeg }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return .png }
+
+        return declared ?? .data
+    }
+
     /// Whether these bytes are a picture of a payment card.
     ///
     /// Separate from `plasticCardFields` on purpose. That one needs a
