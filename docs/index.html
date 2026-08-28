@@ -84,7 +84,10 @@
       <button id="connect">Connect</button>
       <span class="muted">The token is kept in this browser only.</span>
     </div>
-    <div id="authArea" class="row" style="margin-top:12px"></div>
+    <div id="authArea" class="row" style="margin-top:12px">
+      <div id="apple-sign-in-button"></div>
+      <div id="apple-sign-out-button"></div>
+    </div>
   </section>
 
   <!-- 2. Unlock ------------------------------------------------------- -->
@@ -236,10 +239,10 @@ $("connect").addEventListener("click", async () => {
     if (user) {
       onSignedIn();
     } else {
-      // Not signed in: CloudKit JS renders its own Apple ID button.
-      $("authArea").innerHTML = '<div id="apple-sign-in-button"></div>';
+      // The button divs are already in the markup — CloudKit JS fills them in
+      // while setUpAuth runs, so there is nothing to create here.
       container.whenUserSignsIn().then(onSignedIn);
-      say("Sign in with the Apple ID that owns the vault.", "ok");
+      say("Sign in with the Apple ID that owns the vault — use the button below.", "ok");
     }
   } catch (error) {
     // CloudKit's thrown message is vague — the useful part (ckErrorCode,
