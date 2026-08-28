@@ -242,7 +242,19 @@ $("connect").addEventListener("click", async () => {
       say("Sign in with the Apple ID that owns the vault.", "ok");
     }
   } catch (error) {
-    say("Could not connect: " + (error && error.message ? error.message : error), "err");
+    // CloudKit's thrown message is vague — the useful part (ckErrorCode,
+    // reason, serverErrorCode) hangs off the object. Show all of it, because
+    // "authentication failed" covers several very different causes.
+    const detail = [];
+    if (error) {
+      for (const key of ["ckErrorCode", "serverErrorCode", "reason", "message", "recordName"]) {
+        if (error[key]) detail.push(key + ": " + error[key]);
+      }
+      if (!detail.length) detail.push(String(error));
+    }
+    say("Could not connect — " + detail.join("  ·  "), "err");
+    console.error("CloudKit connect failed. Full error object:", error);
+    try { console.error("as JSON:", JSON.stringify(error, Object.getOwnPropertyNames(error))); } catch (e) {}
   }
 });
 
