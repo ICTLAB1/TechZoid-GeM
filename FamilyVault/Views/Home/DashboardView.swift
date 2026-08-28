@@ -42,8 +42,12 @@ struct DashboardView: View {
 
                     categoriesSection
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, Theme.Spacing.screen)
+                .padding(.top, Theme.Spacing.row)
+                // The tab bar floats over the content, so the last row of
+                // category tiles had nothing to scroll clear into and sat
+                // half-hidden behind it at the end of the list.
+                .padding(.bottom, Theme.Spacing.section * 2)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Vault")

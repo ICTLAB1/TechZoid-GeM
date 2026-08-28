@@ -143,8 +143,10 @@ struct ItemDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, Theme.Spacing.screen)
+            .padding(.top, Theme.Spacing.content)
+            // Clear the floating tab bar, which sits over this screen too.
+            .padding(.bottom, Theme.Spacing.section * 2)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle(item.displayTitle)
