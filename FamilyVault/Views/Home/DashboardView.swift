@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var newItemCategory: ItemCategory?
     @State private var showingCategoryPicker = false
     @State private var justCreatedItem: VaultItem?
+    @State private var showingQuickScan = false
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -17,6 +18,8 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     SyncStatusBar()
+
+                    scanAnythingCard
 
                     if !gettingStartedComplete {
                         GettingStartedCard(onAddEntry: { showingCategoryPicker = true })
@@ -56,6 +59,14 @@ struct DashboardView: View {
                     }
                     .accessibilityLabel("Add an entry")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingQuickScan = true
+                    } label: {
+                        Image(systemName: "doc.viewfinder")
+                    }
+                    .accessibilityLabel("Scan anything")
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         session.lock()
@@ -82,10 +93,50 @@ struct DashboardView: View {
             .sheet(item: $justCreatedItem) { item in
                 NavigationStack { ItemDetailView(itemID: item.id) }
             }
+            .sheet(isPresented: $showingQuickScan) {
+                QuickScanView(onOpenEntry: { justCreatedItem = $0 })
+            }
         }
     }
 
     // MARK: - Sections
+
+    /// The one-tap way in: point the camera at anything and let the app decide
+    /// what it is. Sits above everything else because it is the fastest path
+    /// from a piece of paper to a filled-in entry.
+    private var scanAnythingCard: some View {
+        Button {
+            showingQuickScan = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "doc.viewfinder")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Scan anything")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("A policy, statement, passbook, deed or ID — it works out which and fills the fields in")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
 
     private var documentsSubtitle: String {
         let count = store.attachmentCount

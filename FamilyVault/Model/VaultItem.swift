@@ -289,4 +289,39 @@ struct VaultItem: Codable, Identifiable, Hashable {
     var recentHistory: [ItemEvent] {
         history.sorted { $0.at > $1.at }
     }
+
+    /// Writes one field read off a document into this entry.
+    ///
+    /// Item-local on purpose: the editor fills in an entry that has not been
+    /// saved yet, so the same rule has to work with or without the store.
+    /// Deciding *whether* a candidate may be written — empty field, confident
+    /// enough — stays with the caller.
+    mutating func applyExtracted(_ candidate: ExtractedField) {
+        if let index = fields.firstIndex(where: { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }) {
+            fields[index].value = candidate.value
+        } else {
+            // A label the template doesn't carry still deserves a home.
+            let kind = CategoryTemplates.fields(for: category)
+                .first { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }?.kind ?? .text
+            fields.append(ItemField(label: candidate.label, value: candidate.value, kind: kind))
+        }
+
+        // Keep the identifying line in step with what was just learned.
+        let institution = CategoryTemplates.institutionField(for: category)
+        if candidate.label.caseInsensitiveCompare(institution) == .orderedSame, subtitle.isEmpty {
+            subtitle = candidate.value
+        }
+        // A name has to read like one. An amount or an account number is a
+        // true reading but a useless title — a loan entry called "2264234"
+        // tells you nothing in a list — so a value with no letters in it is
+        // left where it belongs and the title stays empty for the caller to
+        // fill with something meaningful.
+        let readsLikeAName = candidate.value.contains(where: \.isLetter)
+        if title.trimmingCharacters(in: .whitespaces).isEmpty,
+           candidate.confidence >= 0.8,
+           !candidate.value.isEmpty,
+           readsLikeAName {
+            title = candidate.value
+        }
+    }
 }

@@ -54,6 +54,10 @@ actor CloudKitService {
                 case .restricted: "iCloud is restricted on this iPhone (parental controls or a device policy)."
                 case .couldNotDetermine: "Could not reach iCloud. Check your internet connection."
                 case .temporarilyUnavailable: "iCloud is temporarily unavailable. Sync will retry."
+                // Unreachable — this error is only built for a status that
+                // isn't `.available` — but stated so the compiler keeps
+                // checking this switch against future SDK cases.
+                case .available: "iCloud is available."
                 @unknown default: "iCloud is unavailable."
                 }
             case .notShareable:
@@ -375,7 +379,10 @@ actor CloudKitService {
         // really just a timing hiccup.
         case .requestRateLimited, .zoneBusy, .networkFailure, .networkUnavailable, .serviceUnavailable, .serverRejectedRequest:
             return true
-        @unknown default:
+        // Everything else is permanent as far as retrying goes. A plain
+        // `default`: only the codes above are worth another attempt, so a new
+        // CKError code appearing needs no decision here.
+        default:
             return false
         }
     }

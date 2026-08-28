@@ -14,6 +14,9 @@ struct ItemEditorView: View {
     @State private var showingAddField = false
     @State private var newFieldLabel = ""
     @State private var generatorTarget: UUID?
+    /// Scanned and uploaded documents, held until the entry is saved.
+    @State private var stagedDocuments: [StagedDocument] = []
+    @State private var attachError: String?
 
     init(item: VaultItem, isNew: Bool, onSaved: ((VaultItem) -> Void)? = nil) {
         _item = State(initialValue: item)
@@ -112,18 +115,12 @@ struct ItemEditorView: View {
                     Toggle("Pin to home screen", isOn: $item.isFavourite)
                 }
 
-                if isNew {
-                    Section {
-                        Label("Save, and you'll land here ready to scan or attach documents.", systemImage: "doc.viewfinder")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Section {
-                        Text("Documents are added from the entry's own screen, after saving.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                Section {
+                    EditorDocumentsSection(item: $item, staged: $stagedDocuments)
+                } header: {
+                    Text("Documents")
+                } footer: {
+                    Text(documentsFootnote)
                 }
             }
             .onAppear {
@@ -157,7 +154,26 @@ struct ItemEditorView: View {
                     }
                 }
             }
+            .alert("Documents", isPresented: Binding(
+                get: { attachError != nil },
+                set: { if !$0 { attachError = nil } }
+            )) {
+                Button("OK", role: .cancel) { attachError = nil }
+            } message: {
+                Text(attachError ?? "")
+            }
         }
+    }
+
+    /// Says plainly that nothing is written until Save, because the documents
+    /// are sitting in memory until then and cancelling really does discard them.
+    private var documentsFootnote: String {
+        if stagedDocuments.isEmpty {
+            return "Scan the papers with the camera, or upload a PDF you already have. It's read on this iPhone to fill in what it can — and attached, encrypted, when you save."
+        }
+        let count = stagedDocuments.count
+        let noun = count == 1 ? "document" : "documents"
+        return "\(count) \(noun) will be attached when you save. Cancel and nothing is kept."
     }
 
     /// Named family members first, so the picker steers toward the real
@@ -250,6 +266,34 @@ struct ItemEditorView: View {
         if !toSave.holder.isEmpty { settings.lastHolder = toSave.holder }
 
         store.save(toSave)
+
+        // The entry exists now, so the staged documents finally have something
+        // to hang off. Anything that fails to file stays staged, so Save can be
+        // tapped again rather than the bytes being lost silently.
+        if !stagedDocuments.isEmpty {
+            var unfiled: [StagedDocument] = []
+            for document in stagedDocuments {
+                do {
+                    try store.addAttachment(
+                        data: document.data,
+                        filename: document.filename,
+                        typeIdentifier: document.typeIdentifier,
+                        to: toSave,
+                        extractedText: document.extractedText.isEmpty ? nil : document.extractedText,
+                        pageCount: document.pageCount
+                    )
+                } catch {
+                    unfiled.append(document)
+                    attachError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
+            stagedDocuments = unfiled
+            if !unfiled.isEmpty {
+                // The entry itself is saved; only the documents are outstanding.
+                return
+            }
+        }
+
         onSaved?(toSave)
         dismiss()
     }

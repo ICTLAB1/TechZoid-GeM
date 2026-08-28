@@ -444,23 +444,7 @@ final class VaultStore: ObservableObject {
     }
 
     private func apply(_ candidate: ExtractedField, to target: inout VaultItem) {
-        if let index = target.fields.firstIndex(where: { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }) {
-            target.fields[index].value = candidate.value
-        } else {
-            // A label the template doesn't carry still deserves a home.
-            let kind = CategoryTemplates.fields(for: target.category)
-                .first { $0.label.caseInsensitiveCompare(candidate.label) == .orderedSame }?.kind ?? .text
-            target.fields.append(ItemField(label: candidate.label, value: candidate.value, kind: kind))
-        }
-
-        // Keep the identifying line in step with what was just learned.
-        let institution = CategoryTemplates.institutionField(for: target.category)
-        if candidate.label.caseInsensitiveCompare(institution) == .orderedSame, target.subtitle.isEmpty {
-            target.subtitle = candidate.value
-        }
-        if target.title.trimmingCharacters(in: .whitespaces).isEmpty, candidate.confidence >= 0.8, !candidate.value.isEmpty {
-            target.title = candidate.value
-        }
+        target.applyExtracted(candidate)
     }
 
     /// Every document in the vault, newest first, for the documents library.
@@ -840,7 +824,11 @@ final class VaultStore: ObservableObject {
         switch ckError.code {
         case .serverRejectedRequest, .zoneBusy, .networkFailure, .networkUnavailable, .requestRateLimited:
             return true
-        @unknown default:
+        // Everything else is treated as permanent. A plain `default` rather
+        // than `@unknown default` on purpose: CKError.Code carries dozens of
+        // codes and only the handful above are worth retrying, so there is
+        // nothing to revisit when the SDK adds another one.
+        default:
             return false
         }
     }
@@ -1046,7 +1034,9 @@ final class VaultStore: ObservableObject {
                 return "Sign in to iCloud in Settings to sync with your other phone."
             case .zoneNotFound, .userDeletedZone:
                 return "The shared vault is no longer available in iCloud."
-            @unknown default:
+            // Any other CloudKit code falls through to the generic wording
+            // below rather than being spelled out one by one.
+            default:
                 break
             }
         }
