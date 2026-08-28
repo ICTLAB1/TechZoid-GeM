@@ -87,6 +87,7 @@ enum CategoryTemplates {
                 ItemField(label: "Tenure", kind: .text),
                 ItemField(label: "Loan end date", kind: .date),
                 ItemField(label: "Debit account", kind: .text),
+                ItemField(label: "Customer care", kind: .phone),
                 ItemField(label: "Portal login", kind: .secret)
             ]
 

@@ -72,6 +72,10 @@ enum DocumentFieldExtractor {
         case vocabulary([(terms: [String], value: String)])
         /// A self-identifying shape, searched for anywhere in the document.
         case pattern(String)
+        /// Who the letter is addressed to. Indian correspondence opens "To,"
+        /// with the name on the next line and no label anywhere — which is
+        /// the only place a welcome letter states the customer's name.
+        case addressee
     }
 
     private enum ValueKind {
@@ -275,7 +279,7 @@ enum DocumentFieldExtractor {
     ]
 
     private static let loanTypeVocabulary: [(terms: [String], value: String)] = [
-        (["home loan", "housing loan"], "Home loan"),
+        (["home loan", "housing loan", "home finance"], "Home loan"),
         (["loan against property"], "Loan against property"),
         (["personal loan"], "Personal loan"),
         (["car loan", "auto loan", "vehicle loan"], "Car loan"),
@@ -364,15 +368,21 @@ enum DocumentFieldExtractor {
                 Rule(label: "Loan type", strategy: .vocabulary(loanTypeVocabulary), confidence: 0.8),
                 Rule(label: "Lender", strategy: .vocabulary(bankVocabulary), confidence: 0.85),
                 Rule(label: "Lender", strategy: .cued(cues: ["lender", "bank name", "financed by", "issued by"], kind: .name), confidence: 0.7),
-                Rule(label: "Borrower", strategy: .cued(cues: ["borrower", "applicant name", "name of borrower"], kind: .name)),
+                Rule(label: "Borrower", strategy: .cued(cues: ["name of borrower", "borrower name", "applicant name"], kind: .name)),
+                Rule(label: "Borrower", strategy: .addressee, confidence: 0.75),
+                Rule(label: "Borrower", strategy: .cued(cues: ["borrower"], kind: .name), confidence: 0.7),
                 Rule(label: "Principal amount", strategy: .cued(cues: ["loan amount", "sanctioned amount", "principal", "amount financed", "disbursed amount"], kind: .money), confidence: 0.88),
                 Rule(label: "Outstanding amount", strategy: .cued(cues: ["outstanding", "balance principal", "principal outstanding"], kind: .money)),
                 Rule(label: "Interest rate", strategy: .cued(cues: ["rate of interest", "interest rate", "roi"], kind: .percentage), confidence: 0.85),
                 Rule(label: "EMI amount", strategy: .cued(cues: ["emi amount", "monthly instalment", "monthly installment", "emi"], kind: .money), confidence: 0.88),
-                Rule(label: "EMI date", strategy: .cued(cues: ["emi date", "due date", "instalment date", "installment date", "repayment date", "monthly due"], kind: .date), confidence: 0.8),
+                Rule(label: "EMI date", strategy: .cued(cues: ["first emi due on", "first emi due", "first emi", "emi due on", "emi date", "due date", "instalment date", "installment date", "repayment date", "monthly due"], kind: .date), confidence: 0.8),
                 Rule(label: "Tenure", strategy: .cued(cues: ["tenure", "loan period", "number of instalments", "no. of emis"], kind: .freeText)),
                 Rule(label: "Loan end date", strategy: .cued(cues: ["last emi", "loan end", "maturity date", "final instalment"], kind: .date), confidence: 0.75),
-                Rule(label: "Debit account", strategy: .cued(cues: ["debit account", "auto debit", "nach", "ecs account", "repayment account"], kind: .alphanumeric), confidence: 0.75)
+                Rule(label: "Debit account", strategy: .cued(cues: ["debit account", "auto debit", "nach", "ecs account", "repayment account"], kind: .alphanumeric), confidence: 0.75),
+                Rule(label: "Customer care", strategy: .cued(cues: ["helpline number", "helpline", "toll free", "toll-free", "customer care no", "customer care", "call us on"], kind: .phone), confidence: 0.8),
+                // Letters often print the number on its own line above the
+                // sentence that names it, so the cue can't reach it.
+                Rule(label: "Customer care", strategy: .pattern(phonePattern), confidence: 0.55)
             ]
 
         case .bankAccount:
@@ -490,7 +500,24 @@ enum DocumentFieldExtractor {
             return vocabularyMatch(rule: rule, entries: entries, whole: whole)
         case .pattern(let pattern):
             return patternMatch(rule: rule, pattern: pattern, lines: lines, whole: whole)
+        case .addressee:
+            return addresseeMatch(rule: rule, lines: lines)
         }
+    }
+
+    /// The name under a letter's "To,".
+    private static func addresseeMatch(rule: Rule, lines: [String]) -> ExtractedField? {
+        // Only the opening of the letter — a "To" further down is part of a
+        // sentence, not an address block.
+        for (index, line) in lines.prefix(12).enumerated() {
+            let bare = line.trimmingCharacters(in: CharacterSet(charactersIn: " ,:.")).lowercased()
+            guard bare == "to" else { continue }
+            guard index + 1 < lines.count,
+                  let value = value(from: lines[index + 1], kind: .name)
+            else { continue }
+            return field(rule: rule, value: value, confidence: rule.confidence, evidence: "\(line) → \(lines[index + 1])")
+        }
+        return nil
     }
 
     private static func firstCuedMatch(rule: Rule, cues: [String], kind: ValueKind, lines: [String]) -> ExtractedField? {
@@ -511,7 +538,15 @@ enum DocumentFieldExtractor {
             // is the next field, not this one's value. Without that guard
             // "Lives Assured: 2" reached past its own short value and took
             // "Basic Sum Assured: Rs. 1,00,00,000" as the persons covered.
+            // A name taken off the next line is only safe when the cue really
+            // is a table label — i.e. nothing follows it on its own line.
+            // Otherwise a sentence mentioning "the Borrower(S) as issued in
+            // favour of…" reaches into the following line and files whatever
+            // it starts with as somebody's name. Money, dates and phone
+            // numbers are shape-checked, so they keep the looser fallback.
+            let labelEndsLine = kind != .name || isLabelOnly(line, after: hit.range)
             if index + 1 < lines.count,
+               labelEndsLine,
                !lines[index + 1].contains(":"),
                let value = value(from: lines[index + 1], kind: kind),
                let match = field(
@@ -603,6 +638,12 @@ enum DocumentFieldExtractor {
         return lowered.range(of: "[x*•●]{3,}", options: .regularExpression) != nil
     }
 
+    /// True when nothing but punctuation follows the cue on its own line.
+    private static func isLabelOnly(_ line: String, after cueRange: Range<String.Index>) -> Bool {
+        let rest = line[cueRange.upperBound...]
+        return rest.allSatisfy { !$0.isLetter && !$0.isNumber }
+    }
+
     private static func trailing(of line: String, after cueRange: Range<String.Index>) -> String? {
         var tail = String(line[cueRange.upperBound...])
         tail = tail.trimmingCharacters(in: CharacterSet(charactersIn: " :\t-–—=.#"))
@@ -677,6 +718,13 @@ enum DocumentFieldExtractor {
             return match.trimmingCharacters(in: .whitespaces)
 
         case .freeText:
+            // "Tenure (months) 180" puts the unit between the label and the
+            // value. Read as-is it becomes "(months) 180"; the unit belongs
+            // after the number, where a person would write it.
+            if let unit = firstMatch(in: trimmed, pattern: "^\\(([A-Za-z]{1,12})\\)\\s*(.+)$", group: 1),
+               let rest = firstMatch(in: trimmed, pattern: "^\\(([A-Za-z]{1,12})\\)\\s*(.+)$", group: 2) {
+                return String("\(rest) \(unit)".prefix(60))
+            }
             let value = String(trimmed.prefix(60))
             // A bare count — "Lives assured: 2" — is a legitimate one-character
             // answer, so digits are kept where a single letter would not be.
@@ -693,6 +741,9 @@ enum DocumentFieldExtractor {
     private static func dateValue(in text: String, takingLast: Bool) -> String? {
         let patterns = [
             "[0-9]{1,2}[/\\-\\.][0-9]{1,2}[/\\-\\.][0-9]{2,4}",
+            // "05-SEP-2026", "31-JUL-26" — a named month joined by hyphens or
+            // slashes rather than spaces, which is how loan schedules print it.
+            "[0-9]{1,2}[\\-/\\s][A-Za-z]{3,9}[\\-/\\s][0-9]{2,4}",
             "[0-9]{1,2}\\s+[A-Za-z]{3,9}\\s+[0-9]{4}",
             "[A-Za-z]{3,9}\\s+[0-9]{1,2},?\\s+[0-9]{4}"
         ]
