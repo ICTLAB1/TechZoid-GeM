@@ -365,7 +365,15 @@ actor CloudKitService {
 
     private static func isTransient(_ error: CKError) -> Bool {
         switch error.code {
-        case .requestRateLimited, .zoneBusy, .networkFailure, .networkUnavailable, .serviceUnavailable:
+        // `serverRejectedRequest` is what a brand-new zone returns for a
+        // moment right after creation — the same first-write race
+        // `confirmZoneIsReady` guards against for the very first sync, but
+        // every other call through `withRetry` (sharing in particular) goes
+        // straight to the server with no such guard of its own. Treating it
+        // as transient here means one retry is enough to ride out the race
+        // instead of surfacing "operation couldn't be completed" on what is
+        // really just a timing hiccup.
+        case .requestRateLimited, .zoneBusy, .networkFailure, .networkUnavailable, .serviceUnavailable, .serverRejectedRequest:
             return true
         @unknown default:
             return false
