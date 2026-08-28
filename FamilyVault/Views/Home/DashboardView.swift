@@ -15,7 +15,9 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.section) {
+                    heroHeader
+
                     SyncStatusBar()
 
                     if !gettingStartedComplete {
@@ -45,6 +47,7 @@ struct DashboardView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Vault")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -85,6 +88,62 @@ struct DashboardView: View {
 
     // MARK: - Sections
 
+    /// The page's headline: what the vault holds, in three figures.
+    ///
+    /// The screen used to open with a plain "Vault" navigation title and go
+    /// straight into cards, which told you nothing at a glance.
+    private var heroHeader: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.content) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+                Text(greeting)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Your family vault")
+                    .font(Theme.Typography.hero)
+                    .foregroundStyle(.primary)
+            }
+
+            HStack(spacing: 0) {
+                StatTile(
+                    value: "\(store.items.count)",
+                    label: store.items.count == 1 ? "entry" : "entries",
+                    icon: "square.stack.3d.up.fill",
+                    tint: Theme.accent
+                )
+                statDivider
+                StatTile(
+                    value: "\(store.attachmentCount)",
+                    label: store.attachmentCount == 1 ? "document" : "documents",
+                    icon: "doc.on.doc.fill",
+                    tint: ItemCategory.document.tint
+                )
+                statDivider
+                StatTile(
+                    value: "\(store.upcomingReminders(within: 60).count)",
+                    label: "due soon",
+                    icon: "bell.fill",
+                    tint: ItemCategory.investment.tint
+                )
+            }
+            .vaultCard()
+        }
+    }
+
+    private var statDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(width: 0.5, height: 34)
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 0..<5: "Late night"
+        case 5..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+
     private var gettingStartedComplete: Bool {
         !store.items.isEmpty && store.devices.count >= 2 && settings.remindersEnabled && reminders.isAuthorized
     }
@@ -121,19 +180,15 @@ struct DashboardView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+            .padding(Theme.Spacing.content)
+            .vaultCard()
         }
         .buttonStyle(.plain)
     }
 
     private var remindersSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("COMING UP")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.6)
+            SectionHeader(title: "Coming up", detail: "next 60 days")
 
             VStack(spacing: 0) {
                 let items = store.upcomingReminders(within: 60)
@@ -145,17 +200,13 @@ struct DashboardView: View {
                     if item.id != items.last?.id { RowDivider() }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+            .vaultCard()
         }
     }
 
     private var favouritesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("PINNED")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.6)
+            SectionHeader(title: "Pinned")
 
             VStack(spacing: 0) {
                 ForEach(store.favourites) { item in
@@ -166,12 +217,18 @@ struct DashboardView: View {
                     if item.id != store.favourites.last?.id { RowDivider() }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+            .vaultCard()
         }
     }
 
     private var categoriesSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.row) {
+            SectionHeader(title: "Everything in here", detail: "\(store.items.count) entries")
+            categoryGrid
+        }
+    }
+
+    private var categoryGrid: some View {
         LazyVGrid(columns: columns, spacing: 12) {
             ForEach(ItemCategory.allCases) { category in
                 NavigationLink(destination: CategoryItemsView(category: category)) {
@@ -188,10 +245,21 @@ struct CategoryTile: View {
     var count: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CategoryBadge(category: category, size: 38)
+        VStack(alignment: .leading, spacing: Theme.Spacing.row) {
+            HStack(alignment: .top) {
+                CategoryBadge(category: category, size: 38)
+                Spacer()
+                // The count reads as the tile's headline, in the category's
+                // own colour, rather than as grey small print underneath.
+                Text("\(count)")
+                    .font(Theme.Typography.stat)
+                    .foregroundStyle(count == 0 ? Color.secondary : category.tint)
+            }
+
+            Spacer(minLength: 0)
+
             Text(category.title)
-                .font(.subheadline.weight(.semibold))
+                .font(Theme.Typography.cardTitle)
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -199,10 +267,9 @@ struct CategoryTile: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 126, alignment: .topLeading)
+        .padding(Theme.Spacing.content)
+        .vaultCard(tint: count == 0 ? nil : category.tint)
     }
 }
 

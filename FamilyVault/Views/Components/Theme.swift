@@ -56,6 +56,116 @@ enum Theme {
     }
 }
 
+extension Theme {
+    /// The type scale.
+    ///
+    /// Rounded for anything that carries identity — the hero figure, screen
+    /// titles, a stat — and the system face for everything you actually read.
+    /// Mixing the two is what stops a screen of uniform 17pt body text from
+    /// looking like a settings list wearing a hat.
+    enum Typography {
+        static let hero = Font.system(size: 32, weight: .bold, design: .rounded)
+        static let stat = Font.system(size: 22, weight: .bold, design: .rounded)
+        static let cardTitle = Font.system(size: 16, weight: .semibold, design: .rounded)
+        static let sectionHeader = Font.system(size: 13, weight: .semibold)
+        static let rowTitle = Font.system(size: 16, weight: .medium)
+    }
+}
+
+/// The standard raised surface: rounded, hairline-bordered, softly shadowed.
+///
+/// Cards were previously a background colour and a corner radius, which reads
+/// flat against a grouped background. The border and shadow are deliberately
+/// almost invisible — enough to separate the card from the page, not enough
+/// to notice as decoration.
+struct VaultSurface: ViewModifier {
+    var tint: Color?
+
+    func body(content: Content) -> some View {
+        content
+            .background(surface)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 3)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+    }
+
+    @ViewBuilder
+    private var surface: some View {
+        if let tint {
+            // A wash of the category's own colour, so a card is recognisable
+            // before its label is read.
+            ZStack {
+                Color(.secondarySystemGroupedBackground)
+                tint.opacity(0.10)
+            }
+        } else {
+            Color(.secondarySystemGroupedBackground)
+        }
+    }
+}
+
+extension View {
+    func vaultCard(tint: Color? = nil) -> some View {
+        modifier(VaultSurface(tint: tint))
+    }
+}
+
+/// A section heading, with an optional count or action on the right.
+///
+/// Replaces four hand-rolled "TEXT IN CAPS" blocks that had drifted to
+/// different sizes and letter spacings.
+struct SectionHeader: View {
+    var title: String
+    var detail: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title.uppercased())
+                .font(Theme.Typography.sectionHeader)
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+            Spacer()
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
+/// One figure and what it counts.
+struct StatTile: View {
+    var value: String
+    var label: String
+    var icon: String
+    var tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+            Image(systemName: icon)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(Theme.Typography.stat)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, Theme.Spacing.row)
+        .padding(.horizontal, Theme.Spacing.content)
+    }
+}
+
 /// A count or short status at the trailing edge of a row.
 ///
 /// One component so "3 of 5", "12" and "Blocked" are never styled three
