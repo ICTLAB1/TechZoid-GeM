@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault — web editor</title>
+<style>
+  :root {
+    --bg: #f4f4f7; --surface: #fff; --line: rgba(0,0,0,.08);
+    --text: #12131a; --muted: #6b6f7d; --accent: #2a6bb8; --danger: #c0392b;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #101114; --surface: #1b1d22; --line: rgba(255,255,255,.1);
+            --text: #f2f3f7; --muted: #9aa0ae; --accent: #6aa6ea; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  header { padding: 22px 20px 8px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 14px; }
+  main { max-width: 1000px; margin: 0 auto; padding: 12px 20px 80px; }
+  .card { background: var(--surface); border: 1px solid var(--line);
+          border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--bg); color: var(--text); font: inherit;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  button { font: inherit; font-weight: 600; padding: 9px 15px; border-radius: 9px;
+           border: 1px solid transparent; background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { background: transparent; border-color: var(--line); color: var(--text); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .entry { border: 1px solid var(--line); border-radius: var(--radius);
+           background: var(--surface); margin-bottom: 10px; overflow: hidden; }
+  .entry summary { padding: 13px 15px; cursor: pointer; display: flex;
+                   gap: 10px; align-items: baseline; }
+  .entry summary strong { font-size: 15px; }
+  .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+         color: var(--muted); border: 1px solid var(--line); padding: 1px 7px; border-radius: 20px; }
+  .body { padding: 0 15px 15px; border-top: 1px solid var(--line); }
+  .field { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: center;
+           padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  .field .lbl { color: var(--muted); font-size: 13px; }
+  .secret input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .status { padding: 10px 14px; border-radius: 9px; margin-bottom: 14px; font-size: 14px; }
+  .status.err { background: rgba(192,57,43,.12); color: var(--danger); }
+  .status.ok  { background: rgba(42,107,184,.12); color: var(--accent); }
+  .hide { display: none; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+  .muted { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vault</h1>
+  <div class="sub">Edit from a keyboard. Changes sync to your iPhone through iCloud.</div>
+</header>
+
+<main>
+  <div id="status" class="status hide"></div>
+
+  <!-- 1. Connection --------------------------------------------------- -->
+  <section class="card" id="setup">
+    <h2>1 · Connect</h2>
+    <label for="container">CloudKit container</label>
+    <input id="container" value="iCloud.com.abhinavjain.vault" spellcheck="false">
+
+    <label for="token">CloudKit JS API token</label>
+    <input id="token" placeholder="paste the token from CloudKit Console" spellcheck="false">
+
+    <label for="env">Environment</label>
+    <select id="env">
+      <option value="development">Development — matches a build installed from Xcode</option>
+      <option value="production">Production — matches TestFlight or the App Store</option>
+    </select>
+
+    <div class="row" style="margin-top:14px">
+      <button id="connect">Connect</button>
+      <span class="muted">The token is kept in this browser only.</span>
+    </div>
+    <div id="authArea" class="row" style="margin-top:12px"></div>
+  </section>
+
+  <!-- 2. Unlock ------------------------------------------------------- -->
+  <section class="card hide" id="unlockCard">
+    <h2>2 · Unlock</h2>
+    <p class="muted" style="margin-top:0">
+      Your passphrase never leaves this page. It derives the key here, in the browser,
+      exactly as the app does — 600,000 PBKDF2 rounds, which takes a few seconds.
+    </p>
+    <label for="pass">Master passphrase</label>
+    <input id="pass" type="password" autocomplete="current-password">
+    <div class="row" style="margin-top:12px">
+      <button id="unlock">Unlock</button>
+      <span id="unlockNote" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- 3. Entries ------------------------------------------------------ -->
+  <section class="hide" id="entriesCard">
+    <div class="row" style="justify-content:space-between; margin-bottom:12px">
+      <h2 style="margin:0; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted)">
+        Entries · <span id="count">0</span>
+      </h2>
+      <button class="secondary" id="reload">Reload from iCloud</button>
+    </div>
+    <div id="entries"></div>
+  </section>
+</main>
+
+<script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Constants that must match the app. Changing one here without changing it in
+// CloudRecordMapper/CloudKitService silently produces records the app ignores.
+// ---------------------------------------------------------------------------
+const ZONE_NAME      = "VaultZone";
+const META_RECORD    = "vault-meta";
+const TYPE_ITEM      = "VaultItem";
+const TYPE_META      = "VaultMeta";
+const SCHEMA_VERSION = 1;
+const GCM_IV_BYTES   = 12;   // AES.GCM.SealedBox(combined:) = iv ‖ ciphertext ‖ tag
+
+let db = null;          // CloudKit private database
+let dataKey = null;     // CryptoKey — the vault's data key, unwrapped
+let records = [];       // [{ recordName, recordChangeTag, item }]
+
+const $ = (id) => document.getElementById(id);
+
+function say(message, kind) {
+  const el = $("status");
+  el.textContent = message;
+  el.className = "status " + (kind || "ok");
+  el.classList.remove("hide");
+}
+function clearStatus() { $("status").classList.add("hide"); }
+
+// --- byte helpers ----------------------------------------------------------
+const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+function bytesToB64(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+// --- crypto, mirroring CryptoBox + KeyDerivation ---------------------------
+
+/// PBKDF2-HMAC-SHA256 → a 256-bit AES-GCM key, same as KeyDerivation.deriveKey.
+async function deriveWrappingKey(passphrase, salt, iterations) {
+  const base = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt", "encrypt"]
+  );
+}
+
+/// Opens a CryptoBox blob: the first 12 bytes are the nonce, the rest is
+/// ciphertext with the tag appended — which is exactly what WebCrypto expects.
+async function openSealed(combined, key) {
+  const iv = combined.slice(0, GCM_IV_BYTES);
+  const body = combined.slice(GCM_IV_BYTES);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, body);
+  return new Uint8Array(plain);
+}
+
+/// Seals in the same layout, with a fresh random nonce every time.
+async function seal(plaintext, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
+  const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext));
+  const combined = new Uint8Array(iv.length + body.length);
+  combined.set(iv, 0);
+  combined.set(body, iv.length);
+  return combined;
+}
+
+// --- CloudKit --------------------------------------------------------------
+
+$("connect").addEventListener("click", async () => {
+  clearStatus();
+  const containerIdentifier = $("container").value.trim();
+  const apiToken = $("token").value.trim();
+  const environment = $("env").value;
+  if (!apiToken) return say("Paste the API token from CloudKit Console first.", "err");
+
+  try {
+    CloudKit.configure({
+      containers: [{
+        containerIdentifier,
+        apiTokenAuth: { apiToken, persist: true },
+        environment
+      }]
+    });
+    const container = CloudKit.getDefaultContainer();
+    db = container.privateCloudDatabase;
+
+    const user = await container.setUpAuth();
+    if (user) {
+      onSignedIn();
+    } else {
+      // Not signed in: CloudKit JS renders its own Apple ID button.
+      $("authArea").innerHTML = '<div id="apple-sign-in-button"></div>';
+      container.whenUserSignsIn().then(onSignedIn);
+      say("Sign in with the Apple ID that owns the vault.", "ok");
+    }
+  } catch (error) {
+    say("Could not connect: " + (error && error.message ? error.message : error), "err");
+  }
+});
+
+function onSignedIn() {
+  say("Connected to iCloud.", "ok");
+  $("unlockCard").classList.remove("hide");
+  $("pass").focus();
+}
+
+$("unlock").addEventListener("click", async () => {
+  const passphrase = $("pass").value;
+  if (!passphrase) return say("Enter your master passphrase.", "err");
+
+  $("unlock").disabled = true;
+  $("unlockNote").textContent = "Deriving the key — a few seconds…";
+  try {
+    const meta = await fetchMeta();
+    const wrappingKey = await deriveWrappingKey(passphrase, meta.salt, meta.iterations);
+
+    let rawDataKey;
+    try {
+      rawDataKey = await openSealed(meta.wrappedKey, wrappingKey);
+    } catch {
+      throw new Error("That passphrase doesn't open this vault.");
+    }
+    dataKey = await crypto.subtle.importKey(
+      "raw", rawDataKey, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]
+    );
+
+    $("pass").value = "";
+    await loadEntries();
+    $("unlockCard").classList.add("hide");
+    $("entriesCard").classList.remove("hide");
+  } catch (error) {
+    say(error.message || String(error), "err");
+  } finally {
+    $("unlock").disabled = false;
+    $("unlockNote").textContent = "";
+  }
+});
+
+async function fetchMeta() {
+  const response = await db.fetchRecords(
+    { recordName: META_RECORD, zoneID: { zoneName: ZONE_NAME } }
+  );
+  if (response.hasErrors) throw new Error(describe(response.errors[0]));
+  const record = response.records[0];
+  if (!record) throw new Error("No vault found in this iCloud account.");
+  return {
+    salt: b64ToBytes(record.fields.salt.value),
+    iterations: record.fields.iterations.value,
+    wrappedKey: b64ToBytes(record.fields.wrappedKey.value)
+  };
+}
+
+async function loadEntries() {
+  const response = await db.performQuery(
+    { recordType: TYPE_ITEM, zoneID: { zoneName: ZONE_NAME } }
+  );
+  if (response.hasErrors) throw new Error(describe(response.errors[0]));
+
+  const decoder = new TextDecoder();
+  records = [];
+  for (const record of response.records) {
+    const payload = record.fields && record.fields.payload;
+    if (!payload) continue;
+    try {
+      const json = await openSealed(b64ToBytes(payload.value), dataKey);
+      const item = JSON.parse(decoder.decode(json));
+      if (item.isDeleted) continue;
+      records.push({
+        recordName: record.recordName,
+        recordChangeTag: record.recordChangeTag,
+        item
+      });
+    } catch {
+      // A record this key can't open belongs to a different vault; skip it
+      // rather than failing the whole load.
+    }
+  }
+  records.sort((a, b) => (a.item.title || "").localeCompare(b.item.title || ""));
+  render();
+  say("Loaded " + records.length + " entries.", "ok");
+}
+
+function describe(error) {
+  return (error && (error.reason || error.serverErrorCode)) || "CloudKit error";
+}
+
+// --- rendering -------------------------------------------------------------
+
+function render() {
+  $("count").textContent = records.length;
+  const host = $("entries");
+  host.innerHTML = "";
+
+  records.forEach((entry, index) => {
+    const item = entry.item;
+    const details = document.createElement("details");
+    details.className = "entry";
+
+    const summary = document.createElement("summary");
+    summary.innerHTML =
+      '<strong>' + escapeHTML(item.title || "(untitled)") + '</strong>' +
+      '<span class="tag">' + escapeHTML(item.category || "") + '</span>' +
+      '<span class="muted">' + escapeHTML(item.subtitle || "") + '</span>';
+    details.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "body";
+    body.appendChild(textRow("Name", item.title || "", (v) => item.title = v));
+    body.appendChild(textRow("Description", item.subtitle || "", (v) => item.subtitle = v));
+    body.appendChild(textRow("Belongs to", item.holder || "", (v) => item.holder = v));
+
+    (item.fields || []).forEach((field) => {
+      body.appendChild(textRow(field.label, field.value || "",
+        (v) => field.value = v, field.kind === "secret"));
+    });
+
+    const notes = document.createElement("div");
+    notes.innerHTML = '<label>Notes</label>';
+    const area = document.createElement("textarea");
+    area.value = item.notes || "";
+    area.addEventListener("input", () => item.notes = area.value);
+    notes.appendChild(area);
+    body.appendChild(notes);
+
+    const actions = document.createElement("div");
+    actions.className = "row";
+    actions.style.marginTop = "14px";
+    const save = document.createElement("button");
+    save.textContent = "Save to iCloud";
+    save.addEventListener("click", () => saveEntry(index, save));
+    actions.appendChild(save);
+    body.appendChild(actions);
+
+    details.appendChild(body);
+    host.appendChild(details);
+  });
+}
+
+function textRow(label, value, onInput, isSecret) {
+  const wrap = document.createElement("div");
+  wrap.className = "field" + (isSecret ? " secret" : "");
+  const name = document.createElement("div");
+  name.className = "lbl";
+  name.textContent = label;
+  const input = document.createElement("input");
+  input.value = value;
+  if (isSecret) input.type = "password";
+  input.addEventListener("input", () => onInput(input.value));
+  wrap.appendChild(name);
+  wrap.appendChild(input);
+  return wrap;
+}
+
+const escapeHTML = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// --- saving ----------------------------------------------------------------
+
+async function saveEntry(index, button) {
+  const entry = records[index];
+  button.disabled = true;
+  button.textContent = "Saving…";
+  try {
+    // Stamp the edit the way the app does, so the phone treats this as newer.
+    entry.item.updatedAt = new Date().toISOString();
+    entry.item.lastEditedBy = "Web";
+
+    const json = new TextEncoder().encode(JSON.stringify(entry.item));
+    const sealed = await seal(json, dataKey);
+
+    const response = await db.saveRecords([{
+      recordName: entry.recordName,
+      recordType: TYPE_ITEM,
+      recordChangeTag: entry.recordChangeTag,
+      fields: {
+        payload: { value: bytesToB64(sealed) },
+        updatedAt: { value: Date.now() },
+        schemaVersion: { value: SCHEMA_VERSION }
+      }
+    }], { zoneID: { zoneName: ZONE_NAME } });
+
+    if (response.hasErrors) throw new Error(describe(response.errors[0]));
+    entry.recordChangeTag = response.records[0].recordChangeTag;
+    say('Saved "' + (entry.item.title || "entry") + '". It will appear on your iPhone at the next sync.', "ok");
+    render();
+  } catch (error) {
+    say("Could not save: " + (error.message || error), "err");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Save to iCloud";
+  }
+}
+
+$("reload").addEventListener("click", async () => {
+  try { await loadEntries(); }
+  catch (error) { say(error.message || String(error), "err"); }
+});
+</script>
+</body>
+</html>
