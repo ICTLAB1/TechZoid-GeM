@@ -15,7 +15,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				FamilyVault.entitlements,
 			);
 			target = FV0000000000000000000006 /* FamilyVault */;
 		};
@@ -200,7 +199,7 @@
 				CODE_SIGN_ENTITLEMENTS = FamilyVault/FamilyVault.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 543UQ2D4W7;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = FamilyVault/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -208,7 +207,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.familyvault;
+				PRODUCT_BUNDLE_IDENTIFIER = com.abhinavjain.vault;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -224,7 +223,7 @@
 				CODE_SIGN_ENTITLEMENTS = FamilyVault/FamilyVault.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 543UQ2D4W7;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = FamilyVault/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -232,7 +231,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.familyvault;
+				PRODUCT_BUNDLE_IDENTIFIER = com.abhinavjain.vault;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
