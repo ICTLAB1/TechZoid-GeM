@@ -51,7 +51,10 @@ final class VaultSession: ObservableObject {
     }
 
     var biometryName: String { Keychain.biometryDescription }
-    var canUseBiometrics: Bool { settings.biometricsEnabled && keyManager.hasBiometricKey }
+    var canUseBiometrics: Bool {
+        guard settings.biometricsEnabled, let material = keyManager.cachedMaterial() else { return false }
+        return keyManager.hasBiometricKey(for: material.vaultID)
+    }
     var isOwnerDevice: Bool { store.isOwner }
 
     // MARK: - Launch
@@ -185,7 +188,18 @@ final class VaultSession: ObservableObject {
         do {
             // The keychain read blocks until Face ID resolves — keep it off main.
             let key = try await derive { try manager.biometricUnlock(prompt: "Unlock your vault") }
-            try store.open(dataKey: key, material: material)
+            do {
+                try store.open(dataKey: key, material: material)
+            } catch {
+                // Face ID itself succeeded, but the key it returned cannot
+                // open this vault — a leftover from an earlier install of the
+                // app. Drop it rather than leaving a prompt that can only
+                // ever fail; the next passphrase unlock stores the right one.
+                keyManager.disableBiometricUnlock()
+                phase = .locked
+                errorMessage = "Face ID couldn't open this vault. Enter your passphrase once, and Face ID will work again after that."
+                return
+            }
             dataKey = key
             await finishUnlock(dataKey: key, passphrase: nil, deviceName: nil)
         } catch {
@@ -198,8 +212,12 @@ final class VaultSession: ObservableObject {
         // decrypted the vault key, so any run of prior failures is over.
         settings.failedAttempts = 0
 
-        if settings.biometricsEnabled, passphrase != nil, !keyManager.hasBiometricKey {
-            try? keyManager.enableBiometricUnlock(dataKey: dataKey)
+        // Re-stored on *every* passphrase unlock rather than only when one is
+        // absent: that way a key left behind by a previous install is
+        // corrected the moment the real passphrase proves which vault this
+        // is, instead of a Face ID prompt that fails forever.
+        if settings.biometricsEnabled, passphrase != nil, let vaultID = keyManager.cachedMaterial()?.vaultID {
+            try? keyManager.enableBiometricUnlock(dataKey: dataKey, vaultID: vaultID)
         }
 
         phase = .unlocked
@@ -237,10 +255,10 @@ final class VaultSession: ObservableObject {
         let key = try await derive { try manager.unwrap(material: material, passphrase: current) }
         let updated = try await derive { try manager.rewrap(material: material, dataKey: key, newPassphrase: new) }
         store.updateKeyMaterial(updated)
-        if keyManager.hasBiometricKey {
+        if keyManager.hasAnyBiometricKey {
             keyManager.disableBiometricUnlock()
             if settings.biometricsEnabled {
-                try? keyManager.enableBiometricUnlock(dataKey: key)
+                try? keyManager.enableBiometricUnlock(dataKey: key, vaultID: updated.vaultID)
             }
         }
     }
@@ -248,7 +266,9 @@ final class VaultSession: ObservableObject {
     func setBiometricsEnabled(_ enabled: Bool) {
         settings.biometricsEnabled = enabled
         if enabled {
-            if let dataKey { try? keyManager.enableBiometricUnlock(dataKey: dataKey) }
+            if let dataKey, let vaultID = keyManager.cachedMaterial()?.vaultID {
+                try? keyManager.enableBiometricUnlock(dataKey: dataKey, vaultID: vaultID)
+            }
         } else {
             keyManager.disableBiometricUnlock()
         }

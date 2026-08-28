@@ -54,6 +54,7 @@ struct NewVaultKeys: Sendable {
 final class VaultKeyManager: @unchecked Sendable {
 
     static let dataKeyAccount = "vault-data-key"
+    static let dataKeyVaultIDAccount = "vault-data-key-vault-id"
     static let deviceIDAccount = "vault-device-id"
 
     enum Failure: LocalizedError {
@@ -147,16 +148,40 @@ final class VaultKeyManager: @unchecked Sendable {
 
     // MARK: - Biometric convenience unlock
 
-    var hasBiometricKey: Bool { Keychain.exists(account: Self.dataKeyAccount) }
+    /// Whether a Face ID key exists *and belongs to this vault*.
+    ///
+    /// The iOS keychain outlives the app: deleting Vault removes its files
+    /// but leaves keychain items behind. Without this check, reinstalling and
+    /// creating a fresh vault left the *previous* vault's data key in place —
+    /// Face ID would then succeed and hand back a key that cannot decrypt the
+    /// new vault, so unlocking failed every single time with no way to
+    /// recover from inside the app. Binding the stored key to the vault it
+    /// was made for means a leftover simply doesn't count as one.
+    func hasBiometricKey(for vaultID: String) -> Bool {
+        guard Keychain.exists(account: Self.dataKeyAccount) else { return false }
+        guard let stored = Keychain.read(account: Self.dataKeyVaultIDAccount),
+              let storedID = String(data: stored, encoding: .utf8)
+        else { return false }
+        return storedID == vaultID
+    }
 
-    func enableBiometricUnlock(dataKey: SymmetricKey) throws {
+    /// Existence alone, ignoring which vault it belongs to — for tear-down,
+    /// where that no longer matters.
+    var hasAnyBiometricKey: Bool { Keychain.exists(account: Self.dataKeyAccount) }
+
+    func enableBiometricUnlock(dataKey: SymmetricKey, vaultID: String) throws {
         var raw = dataKey.rawData
         defer { raw.secureZeroOut() }
         try Keychain.storeBiometryProtected(raw, account: Self.dataKeyAccount)
+        // Deliberately a plain (non-biometric) item: the binding has to be
+        // readable *without* prompting, so a stale key can be spotted before
+        // Face ID is ever offered. A vault ID is an identifier, not a secret.
+        try Keychain.store(Data(vaultID.utf8), account: Self.dataKeyVaultIDAccount)
     }
 
     func disableBiometricUnlock() {
         try? Keychain.delete(account: Self.dataKeyAccount)
+        try? Keychain.delete(account: Self.dataKeyVaultIDAccount)
     }
 
     func biometricUnlock(prompt: String) throws -> SymmetricKey {
