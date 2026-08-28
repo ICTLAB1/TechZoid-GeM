@@ -84,6 +84,89 @@ enum SpreadsheetService {
         var rowCount: Int { rows.count }
     }
 
+    /// Column names used by the password managers people actually export from,
+    /// mapped onto this app's own field labels.
+    ///
+    /// Google Password Manager writes `name,url,username,password,note`;
+    /// Apple's Passwords app writes `Title,URL,Username,Password,Notes,OTPAuth`.
+    /// Imported as-is those become fields literally called "url" and "note",
+    /// sitting alongside the Login template's own "Website / app" and
+    /// "Username" rather than filling them. Renaming the columns on the way in
+    /// means one export lands as proper login entries.
+    private static let passwordExportAliases: [String: String] = [
+        // `name`/`title` is handled separately — see `normalisedForPasswordImport`.
+        // Both exports carry a display name *and* a URL, and mapping both to
+        // "Website / app" gave every entry that field twice.
+        "url": "Website / app",
+        "username": "Username",
+        "login": "Username",
+        "login_username": "Username",
+        "password": "Password",
+        "otpauth": "Two-factor backup codes",
+        "totp": "Two-factor backup codes"
+    ]
+
+    /// Whether these columns look like a password-manager export.
+    ///
+    /// Deliberately strict: a password column on its own is not enough, since
+    /// plenty of the app's own exports have one. It takes a username *and* a
+    /// password, which together only really describe a credential list.
+    static func looksLikePasswordExport(_ headers: [String]) -> Bool {
+        let lowered = Set(headers.map { $0.lowercased().trimmingCharacters(in: .whitespaces) })
+        let hasPassword = lowered.contains("password")
+        let hasUser = !lowered.isDisjoint(with: ["username", "login", "login_username"])
+        return hasPassword && hasUser
+    }
+
+    /// Renames a password export's columns onto the Login template's labels.
+    ///
+    /// A "note"/"notes" column is dropped from the headers and carried
+    /// separately, because a note belongs in the entry's notes rather than as
+    /// a field sitting in the middle of the credentials.
+    struct PasswordImportPlan {
+        var preview: ImportPreview
+        /// Becomes the entry's notes.
+        var noteColumn: Int?
+        /// Becomes the entry's name — "Netflix" rather than the URL.
+        var titleColumn: Int?
+    }
+
+    static func normalisedForPasswordImport(_ preview: ImportPreview) -> PasswordImportPlan {
+        let keys = preview.headers.map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        // Only lift the display name out as the title when there is a URL
+        // column to hold the address. With no URL, the name is all there is,
+        // so it stays as the "Website / app" field.
+        let hasURL = keys.contains("url")
+
+        var headers: [String] = []
+        var noteColumn: Int?
+        var titleColumn: Int?
+
+        for (index, key) in keys.enumerated() {
+            if key == "note" || key == "notes" {
+                noteColumn = index
+                headers.append("")          // an empty header is skipped on import
+                continue
+            }
+            if key == "name" || key == "title" {
+                if hasURL {
+                    titleColumn = index
+                    headers.append("")
+                } else {
+                    headers.append("Website / app")
+                }
+                continue
+            }
+            headers.append(passwordExportAliases[key] ?? preview.headers[index])
+        }
+
+        return PasswordImportPlan(
+            preview: ImportPreview(headers: headers, rows: preview.rows),
+            noteColumn: noteColumn,
+            titleColumn: titleColumn
+        )
+    }
+
     static func preview(from url: URL) throws -> ImportPreview {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -104,7 +187,13 @@ enum SpreadsheetService {
     /// Turns rows into entries for one category. Columns whose names match the
     /// category's template keep that field's kind — so a column called "Card
     /// number" arrives already marked secret rather than sitting in the clear.
-    static func items(from preview: ImportPreview, category: ItemCategory, holder: String) -> [VaultItem] {
+    static func items(
+        from preview: ImportPreview,
+        category: ItemCategory,
+        holder: String,
+        noteColumn: Int? = nil,
+        titleColumn: Int? = nil
+    ) -> [VaultItem] {
         let template = CategoryTemplates.fields(for: category)
         let kinds = Dictionary(
             template.map { ($0.label.lowercased(), $0.kind) },
@@ -129,7 +218,22 @@ enum SpreadsheetService {
                 fields: fields,
                 reminderRepeat: .never
             )
-            item.title = fields.first(where: { $0.kind != .secret })?.value ?? "Imported \(category.singular)"
+            // A note column travels into the entry's notes rather than sitting
+            // among the credentials as a field.
+            if let noteColumn, noteColumn < row.count {
+                let note = row[noteColumn].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !note.isEmpty { item.notes = note }
+            }
+
+            // Prefer the site or app this credential belongs to: on a password
+            // export the first non-secret column is the name of the thing,
+            // which is exactly what the entry should be called.
+            let namedTitle = titleColumn.flatMap { $0 < row.count ? row[$0].trimmingCharacters(in: .whitespaces) : nil }
+            let preferredTitle = CategoryTemplates.subtitleField(for: category).lowercased()
+            item.title = (namedTitle?.isEmpty == false ? namedTitle : nil)
+                ?? fields.first(where: { $0.label.lowercased() == preferredTitle && $0.kind != .secret })?.value
+                ?? fields.first(where: { $0.kind != .secret })?.value
+                ?? "Imported \(category.singular)"
 
             let institution = CategoryTemplates.institutionField(for: category).lowercased()
             if let match = fields.first(where: { $0.label.lowercased() == institution }) {

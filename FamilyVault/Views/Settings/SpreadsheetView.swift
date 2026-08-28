@@ -10,6 +10,10 @@ struct SpreadsheetView: View {
     @State private var importCategory: ItemCategory = .insurance
     @State private var importHolder = ""
     @State private var message: String?
+    /// Set when the chosen file looks like a Google or Apple password export.
+    @State private var isPasswordExport = false
+    @State private var noteColumn: Int?
+    @State private var titleColumn: Int?
 
     @State private var maskOnExport = true
     @State private var exportFile: BackupFile?
@@ -27,6 +31,15 @@ struct SpreadsheetView: View {
                 }
 
                 if let preview {
+                    if isPasswordExport {
+                        Label(
+                            "This looks like a saved-passwords export. The columns have been matched to login fields, and each row will become a Login entry.",
+                            systemImage: "key.fill"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+
                     LabeledContent("Rows found", value: "\(preview.rowCount)")
                     LabeledContent("Columns", value: preview.headers.filter { !$0.isEmpty }.joined(separator: ", "))
 
@@ -112,7 +125,23 @@ struct SpreadsheetView: View {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 do {
-                    preview = try SpreadsheetService.preview(from: url)
+                    let raw = try SpreadsheetService.preview(from: url)
+                    // A saved-passwords export names its columns its own way.
+                    // Recognising it here means the user picks a file and
+                    // presses import, rather than renaming columns by hand.
+                    if SpreadsheetService.looksLikePasswordExport(raw.headers) {
+                        let normalised = SpreadsheetService.normalisedForPasswordImport(raw)
+                        preview = normalised.preview
+                        noteColumn = normalised.noteColumn
+                        titleColumn = normalised.titleColumn
+                        isPasswordExport = true
+                        importCategory = .login
+                    } else {
+                        preview = raw
+                        noteColumn = nil
+                        titleColumn = nil
+                        isPasswordExport = false
+                    }
                     importHolder = settings.lastHolder
                 } catch {
                     message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -132,9 +161,18 @@ struct SpreadsheetView: View {
     }
 
     private func runImport(_ preview: SpreadsheetService.ImportPreview) {
-        let items = SpreadsheetService.items(from: preview, category: importCategory, holder: importHolder)
+        let items = SpreadsheetService.items(
+            from: preview,
+            category: importCategory,
+            holder: importHolder,
+            noteColumn: noteColumn,
+            titleColumn: titleColumn
+        )
         for item in items { store.save(item) }
         self.preview = nil
+        self.noteColumn = nil
+        self.titleColumn = nil
+        self.isPasswordExport = false
         message = items.isEmpty
             ? "No rows had anything in them."
             : "Added \(items.count) \(importCategory.title.lowercased()). Open each one to set its renewal or EMI date."
