@@ -366,12 +366,33 @@ async function fetchMeta() {
   };
 }
 
+/// Reads every record in the zone.
+///
+/// Not a query: querying needs `recordName` marked queryable in the schema,
+/// which this container does not have and which would mean editing indexes in
+/// CloudKit Console. Zone changes need no index — and it is how the app reads
+/// the zone too, so the web page and the phone agree by construction.
+async function fetchAllZoneRecords() {
+  const zoneID = { zoneName: ZONE_NAME };
+  let syncToken = null;
+  const all = [];
+
+  for (let page = 0; page < 50; page++) {          // a bound, not an expectation
+    const options = syncToken ? { syncToken } : {};
+    const response = await db.fetchRecordChanges(zoneID, options);
+    if (response.hasErrors) throw new Error(describe(response.errors[0]));
+
+    for (const record of response.records || []) all.push(record);
+    syncToken = response.syncToken;
+    if (!response.moreComing) break;
+  }
+  return all;
+}
+
 async function loadEntries() {
-  const response = await db.performQuery(
-    { recordType: TYPE_ITEM },
-    { zoneID: { zoneName: ZONE_NAME } }
-  );
-  if (response.hasErrors) throw new Error(describe(response.errors[0]));
+  const fetched = await fetchAllZoneRecords();
+  // The zone holds meta, devices and family members as well; keep the entries.
+  const response = { records: fetched.filter((r) => r.recordType === TYPE_ITEM) };
 
   const decoder = new TextDecoder();
   records = [];
