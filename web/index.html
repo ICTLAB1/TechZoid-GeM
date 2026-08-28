@@ -114,6 +114,7 @@
   </section>
 </main>
 
+<script src="config.local.js" onerror="void 0"></script>
 <script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
 <script>
 "use strict";
@@ -134,6 +135,27 @@ let dataKey = null;     // CryptoKey — the vault's data key, unwrapped
 let records = [];       // [{ recordName, recordChangeTag, item }]
 
 const $ = (id) => document.getElementById(id);
+
+// Settings come from config.local.js if present, otherwise from whatever this
+// browser remembered. Neither is ever sent anywhere but Apple.
+(function restoreSettings() {
+  const local = window.VAULT_CONFIG || {};
+  const remembered = {
+    container: localStorage.getItem("vault.container"),
+    token: localStorage.getItem("vault.token"),
+    environment: localStorage.getItem("vault.environment")
+  };
+  const container = local.container || remembered.container;
+  const token = local.token || remembered.token;
+  const environment = local.environment || remembered.environment;
+  if (container) $("container").value = container;
+  if (token) $("token").value = token;
+  if (environment) $("env").value = environment;
+  if (token) {
+    $("connect").textContent = "Connect";
+    $("connect").focus();
+  }
+})();
 
 function say(message, kind) {
   const el = $("status");
@@ -203,6 +225,10 @@ $("connect").addEventListener("click", async () => {
         environment
       }]
     });
+    localStorage.setItem("vault.container", containerIdentifier);
+    localStorage.setItem("vault.token", apiToken);
+    localStorage.setItem("vault.environment", environment);
+
     const container = CloudKit.getDefaultContainer();
     db = container.privateCloudDatabase;
 

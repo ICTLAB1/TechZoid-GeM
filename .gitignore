@@ -13,3 +13,6 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Local CloudKit token for the web editor — never committed
+web/config.local.js
