@@ -9,7 +9,6 @@ struct DashboardView: View {
     @State private var newItemCategory: ItemCategory?
     @State private var showingCategoryPicker = false
     @State private var justCreatedItem: VaultItem?
-    @State private var showingQuickScan = false
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -18,8 +17,6 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     SyncStatusBar()
-
-                    scanAnythingCard
 
                     if !gettingStartedComplete {
                         GettingStartedCard(onAddEntry: { showingCategoryPicker = true })
@@ -42,8 +39,6 @@ struct DashboardView: View {
                     }
 
                     categoriesSection
-
-                    toolsSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -58,14 +53,6 @@ struct DashboardView: View {
                         Image(systemName: "plus")
                     }
                     .accessibilityLabel("Add an entry")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingQuickScan = true
-                    } label: {
-                        Image(systemName: "doc.viewfinder")
-                    }
-                    .accessibilityLabel("Scan anything")
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -93,115 +80,13 @@ struct DashboardView: View {
             .sheet(item: $justCreatedItem) { item in
                 NavigationStack { ItemDetailView(itemID: item.id) }
             }
-            .sheet(isPresented: $showingQuickScan) {
-                QuickScanView(onOpenEntry: { justCreatedItem = $0 })
-            }
         }
     }
 
     // MARK: - Sections
 
-    /// The one-tap way in: point the camera at anything and let the app decide
-    /// what it is. Sits above everything else because it is the fastest path
-    /// from a piece of paper to a filled-in entry.
-    private var scanAnythingCard: some View {
-        Button {
-            showingQuickScan = true
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "doc.viewfinder")
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Scan anything")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("A policy, statement, passbook, deed or ID — it works out which and fills the fields in")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var documentsSubtitle: String {
-        let count = store.attachmentCount
-        return count == 0 ? "Scan or attach a policy, a statement, a deed" : "\(count) file\(count == 1 ? "" : "s"), all shareable"
-    }
-
     private var gettingStartedComplete: Bool {
         !store.items.isEmpty && store.devices.count >= 2 && settings.remindersEnabled && reminders.isAuthorized
-    }
-
-    /// The cross-cutting views — the ones that answer a question rather than
-    /// hold a record.
-    private var toolsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("BROWSE BY")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.6)
-
-            VStack(spacing: 0) {
-                toolRow("Documents", documentsSubtitle, "doc.on.doc.fill", DocumentsLibraryView())
-                RowDivider()
-                toolRow("Year ahead", "What's due, month by month", "calendar", YearAheadView())
-                RowDivider()
-                toolRow("Important numbers", "Every helpline and agent, tap to call", "phone.fill", ContactsView())
-                RowDivider()
-                toolRow("Nominees", "Who inherits what, and what has nobody", "person.2.fill", NomineesView())
-                if !store.allTags.isEmpty {
-                    RowDivider()
-                    toolRow("Tags", store.allTags.prefix(3).joined(separator: ", "), "tag.fill", TagsView())
-                }
-                RowDivider()
-                toolRow("Recent activity", "What changed, on either phone", "clock.arrow.circlepath", ActivityView())
-            }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
-        }
-    }
-
-    private func toolRow<Destination: View>(_ title: String, _ detail: String, _ icon: String, _ destination: Destination) -> some View {
-        NavigationLink(destination: destination) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.callout)
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private var urgentFindings: [HealthFinding] {

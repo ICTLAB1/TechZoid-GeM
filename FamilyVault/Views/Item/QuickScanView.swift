@@ -16,6 +16,10 @@ struct QuickScanView: View {
     @EnvironmentObject private var store: VaultStore
     @Environment(\.dismiss) private var dismiss
 
+    /// False when this is a tab root rather than a sheet — a tab has nothing
+    /// to dismiss, and a "Close" button on it would go nowhere.
+    var showsDismissButton: Bool = true
+
     /// Opens the finished entry. Called after this sheet closes.
     var onOpenEntry: (VaultItem) -> Void
 
@@ -58,8 +62,10 @@ struct QuickScanView: View {
             .navigationTitle(outcome == nil ? "Scan anything" : "Done")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(outcome == nil ? "Cancel" : "Close") { dismiss() }
+                if showsDismissButton {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(outcome == nil ? "Cancel" : "Close") { dismiss() }
+                    }
                 }
             }
             .alert("Scan", isPresented: alertBinding) {
@@ -265,8 +271,11 @@ struct QuickScanView: View {
         Section {
             Button {
                 let item = outcome.item
-                dismiss()
+                if showsDismissButton { dismiss() }
                 onOpenEntry(item)
+                // A tab stays put, so clear the result — otherwise coming back
+                // to Scan shows the last scan's summary as though it were new.
+                if !showsDismissButton { self.outcome = nil }
             } label: {
                 Text("Open the entry").fontWeight(.semibold)
             }

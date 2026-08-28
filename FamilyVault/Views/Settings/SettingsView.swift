@@ -38,8 +38,7 @@ struct SettingsView: View {
                         HStack {
                             Label("Devices", systemImage: "iphone")
                             Spacer()
-                            Text("\(store.devices.count) of \(VaultStore.maximumDevices)")
-                                .foregroundStyle(.secondary)
+                            StatusBadge(text: "\(store.devices.count) of \(VaultStore.maximumDevices)")
                         }
                     }
 
@@ -50,7 +49,7 @@ struct SettingsView: View {
                             Label("Family Members", systemImage: "person.2.crop.square.stack")
                             Spacer()
                             if !store.familyMembers.isEmpty {
-                                Text("\(store.familyMembers.count)").foregroundStyle(.secondary)
+                                StatusBadge(text: "\(store.familyMembers.count)")
                             }
                         }
                     }
@@ -108,76 +107,15 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        HealthCheckView()
-                    } label: {
-                        HStack {
-                            Label("Check-up", systemImage: "stethoscope")
-                            Spacer()
-                            let urgent = store.healthFindings.filter { $0.severity != .suggestion }.count
-                            if urgent > 0 {
-                                Text("\(urgent)")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(Color.red)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                    }
-
-                    NavigationLink {
-                        SummaryView()
-                    } label: {
-                        Label("At a glance", systemImage: "chart.pie")
-                    }
-
-                    NavigationLink {
-                        DocumentsLibraryView()
-                    } label: {
-                        HStack {
-                            Label("Documents", systemImage: "doc.on.doc.fill")
-                            Spacer()
-                            Text("\(store.attachmentCount)").foregroundStyle(.secondary)
-                        }
-                    }
-
-                    NavigationLink {
-                        YearAheadView()
-                    } label: {
-                        Label("Year ahead", systemImage: "calendar")
-                    }
-
-                    NavigationLink {
-                        NomineesView()
-                    } label: {
-                        Label("Nominees", systemImage: "person.2.fill")
-                    }
-
-                    NavigationLink {
-                        ContactsView()
-                    } label: {
-                        Label("Important numbers", systemImage: "phone.fill")
-                    }
-
-                    NavigationLink {
-                        ActivityView()
-                    } label: {
-                        Label("Recent activity", systemImage: "clock.arrow.circlepath")
-                    }
-                } header: {
-                    Text("Review")
-                }
-
-                Section {
-                    NavigationLink {
                         NotificationSettingsView()
                     } label: {
                         HStack {
                             Label("Notifications", systemImage: "bell.badge")
                             Spacer()
-                            Text(notificationStatusLabel)
-                                .foregroundStyle(notificationStatusNeedsAttention ? Color.red : Color.secondary)
+                            StatusBadge(
+                                text: notificationStatusLabel,
+                                emphasis: notificationStatusNeedsAttention ? .urgent : .neutral
+                            )
                         }
                     }
                 } header: {
@@ -212,7 +150,7 @@ struct SettingsView: View {
                             Label("Recently Deleted", systemImage: "trash")
                             Spacer()
                             if !store.deletedItems.isEmpty {
-                                Text("\(store.deletedItems.count)").foregroundStyle(.secondary)
+                                StatusBadge(text: "\(store.deletedItems.count)")
                             }
                         }
                     }
