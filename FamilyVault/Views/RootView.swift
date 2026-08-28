@@ -182,8 +182,7 @@ struct DeviceLimitView: View {
                     if device.id != registered.last?.id { Divider().padding(.leading, 46) }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+            .vaultCard()
 
             Button("Check again") {
                 Task { await session.bootstrap() }

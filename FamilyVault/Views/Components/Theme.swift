@@ -242,16 +242,12 @@ struct CardSection<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.row) {
             if let title {
-                Text(title.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.6)
+                SectionHeader(title: title)
             }
             VStack(spacing: 0) { content }
-                .background(Color(.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+                .vaultCard()
             if let footnote {
                 Text(footnote)
                     .font(.footnote)
@@ -269,20 +265,27 @@ struct EmptyStateView: View {
     var action: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Theme.Spacing.content) {
             Image(systemName: icon)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.headline)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 64, height: 64)
+                .background(Theme.accent.opacity(0.12), in: Circle())
+
+            VStack(spacing: Theme.Spacing.tight) {
+                Text(title)
+                    .font(Theme.Typography.cardTitle)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
-                    .padding(.top, 4)
+                    .controlSize(.large)
+                    .padding(.top, Theme.Spacing.tight)
             }
         }
         .frame(maxWidth: .infinity)

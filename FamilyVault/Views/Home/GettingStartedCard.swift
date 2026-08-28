@@ -52,9 +52,8 @@ struct GettingStartedCard: View {
                 detail: hasNotifications ? "Reminders will reach you." : "Without this, no renewal or EMI reminder can reach you."
             ) { notificationDestination = true }
         }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+        .padding(Theme.Spacing.content)
+        .vaultCard()
         .navigationDestination(isPresented: $shareDestination) { ShareVaultView() }
         .navigationDestination(isPresented: $notificationDestination) { NotificationSettingsView() }
     }

@@ -28,9 +28,9 @@ struct UnlockView: View {
                     .focused($isFocused)
                     .submitLabel(.go)
                     .onSubmit(attemptUnlock)
-                    .padding(14)
+                    .padding(Theme.Spacing.content)
                     .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
 
                 Button(action: attemptUnlock) {
                     HStack {

@@ -281,7 +281,7 @@ struct ItemRow: View {
             CategoryBadge(category: item.category)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayTitle)
-                    .font(.body)
+                    .font(Theme.Typography.rowTitle)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 if !item.subtitle.isEmpty {
@@ -315,7 +315,7 @@ struct ReminderRow: View {
             CategoryBadge(category: item.category)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayTitle)
-                    .font(.body)
+                    .font(Theme.Typography.rowTitle)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 if !attribution.isEmpty {
@@ -375,10 +375,10 @@ struct SyncStatusBar: View {
                 ProgressView().controlSize(.mini)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Theme.Spacing.content)
+        .padding(.vertical, Theme.Spacing.row)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
     }
 
     private var icon: String {
@@ -434,9 +434,8 @@ struct SummaryCard: View {
                 SummaryTile(label: "Owed", value: summary.loanOutstanding, tint: ItemCategory.loan.tint)
             }
         }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardCornerRadius, style: .continuous))
+        .padding(Theme.Spacing.content)
+        .vaultCard()
     }
 }
 
