@@ -367,7 +367,7 @@ actor CloudKitService {
         switch error.code {
         case .requestRateLimited, .zoneBusy, .networkFailure, .networkUnavailable, .serviceUnavailable:
             return true
-        default:
+        @unknown default:
             return false
         }
     }

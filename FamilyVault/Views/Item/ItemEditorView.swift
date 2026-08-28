@@ -15,9 +15,10 @@ struct ItemEditorView: View {
     @State private var newFieldLabel = ""
     @State private var generatorTarget: UUID?
 
-    init(item: VaultItem, isNew: Bool) {
+    init(item: VaultItem, isNew: Bool, onSaved: ((VaultItem) -> Void)? = nil) {
         _item = State(initialValue: item)
         self.isNew = isNew
+        self.onSaved = onSaved
         _hasReminder = State(initialValue: item.reminderDate != nil)
         _reminderDate = State(initialValue: item.reminderDate ?? Calendar.current.date(byAdding: .year, value: 1, to: Date()) ?? Date())
     }

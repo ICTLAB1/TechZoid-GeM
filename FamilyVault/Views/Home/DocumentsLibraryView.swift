@@ -14,87 +14,97 @@ struct DocumentsLibraryView: View {
     @State private var justCreatedItem: VaultItem?
 
     var body: some View {
-        Group {
-            if store.attachmentCount == 0 {
-                EmptyStateView(
-                    icon: "doc.on.doc",
-                    title: "No documents yet",
-                    message: "Scan or attach a policy bond, a statement, a certificate — anything worth keeping. They're encrypted like everything else, and you can send one on at any time.",
-                    actionTitle: "Add a document",
-                    action: { isAddingStandalone = true }
-                )
-            } else {
-                List {
-                    if !usedCategories.isEmpty {
-                        Section {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    chip(title: "All", active: categoryFilter == nil) { categoryFilter = nil }
-                                    ForEach(usedCategories) { category in
-                                        chip(title: category.title, active: categoryFilter == category) {
-                                            categoryFilter = (categoryFilter == category) ? nil : category
-                                        }
+        content
+            .navigationTitle("Documents")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "File name, insurer, anything inside")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { isAddingStandalone = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Add a personal document")
+                }
+            }
+            .sheet(item: $viewing) { attachment in
+                AttachmentViewer(attachment: attachment)
+            }
+            .sheet(item: $sharing) { file in
+                ShareSheet(activityItems: [file.url])
+            }
+            .sheet(isPresented: $isAddingStandalone) {
+                newDocumentEditor
+            }
+            .sheet(item: $justCreatedItem) { item in
+                NavigationStack { ItemDetailView(itemID: item.id) }
+            }
+            .alert("Share", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
+                Button("OK", role: .cancel) { shareError = nil }
+            } message: {
+                Text(shareError ?? "")
+            }
+    }
+
+    /// Split out of `body` so the type checker solves the list content and
+    /// the (now four) `.sheet`/`.toolbar` modifiers as separate expressions
+    /// rather than one combined one — otherwise it can time out.
+    @ViewBuilder
+    private var content: some View {
+        if store.attachmentCount == 0 {
+            EmptyStateView(
+                icon: "doc.on.doc",
+                title: "No documents yet",
+                message: "Scan or attach a policy bond, a statement, a certificate — anything worth keeping. They're encrypted like everything else, and you can send one on at any time.",
+                actionTitle: "Add a document",
+                action: { isAddingStandalone = true }
+            )
+        } else {
+            List {
+                if !usedCategories.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                chip(title: "All", active: categoryFilter == nil) { categoryFilter = nil }
+                                ForEach(usedCategories) { category in
+                                    chip(title: category.title, active: categoryFilter == category) {
+                                        categoryFilter = (categoryFilter == category) ? nil : category
                                     }
                                 }
-                                .padding(.vertical, 2)
                             }
-                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                            .padding(.vertical, 2)
                         }
-                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                     }
+                    .listRowBackground(Color.clear)
+                }
 
-                    if documents.isEmpty {
-                        Section {
-                            Text("Nothing matches.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Section {
-                            ForEach(documents, id: \.attachment.id) { entry in
-                                DocumentRow(entry: entry) { viewing = entry.attachment }
-                                    .swipeActions(edge: .leading) {
-                                        Button {
-                                            share(entry.attachment)
-                                        } label: {
-                                            Label("Share", systemImage: "square.and.arrow.up")
-                                        }
-                                        .tint(Theme.accent)
+                if documents.isEmpty {
+                    Section {
+                        Text("Nothing matches.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section {
+                        ForEach(documents, id: \.attachment.id) { entry in
+                            DocumentRow(entry: entry) { viewing = entry.attachment }
+                                .swipeActions(edge: .leading) {
+                                    Button {
+                                        share(entry.attachment)
+                                    } label: {
+                                        Label("Share", systemImage: "square.and.arrow.up")
                                     }
-                            }
-                        } footer: {
-                            Text("\(store.attachmentCount) document\(store.attachmentCount == 1 ? "" : "s"), encrypted on both phones. Swipe a row to send one on.")
+                                    .tint(Theme.accent)
+                                }
                         }
+                    } footer: {
+                        Text("\(store.attachmentCount) document\(store.attachmentCount == 1 ? "" : "s"), encrypted on both phones. Swipe a row to send one on.")
                     }
                 }
             }
         }
-        .navigationTitle("Documents")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "File name, insurer, anything inside")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { isAddingStandalone = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel("Add a personal document")
-            }
-        }
-        .sheet(item: $viewing) { attachment in
-            AttachmentViewer(attachment: attachment)
-        }
-        .sheet(item: $sharing) { file in
-            ShareSheet(activityItems: [file.url])
-        }
-        .sheet(isPresented: $isAddingStandalone) {
-            ItemEditorView(item: CategoryTemplates.newItem(category: .document), isNew: true, onSaved: { justCreatedItem = $0 })
-        }
-        .sheet(item: $justCreatedItem) { item in
-            NavigationStack { ItemDetailView(itemID: item.id) }
-        }
-        .alert("Share", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
-            Button("OK", role: .cancel) { shareError = nil }
-        } message: {
-            Text(shareError ?? "")
-        }
+    }
+
+    private var newDocumentEditor: some View {
+        ItemEditorView(item: CategoryTemplates.newItem(category: .document), isNew: true, onSaved: { justCreatedItem = $0 })
     }
 
     private var usedCategories: [ItemCategory] {

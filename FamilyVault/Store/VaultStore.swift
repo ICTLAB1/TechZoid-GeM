@@ -840,7 +840,7 @@ final class VaultStore: ObservableObject {
         switch ckError.code {
         case .serverRejectedRequest, .zoneBusy, .networkFailure, .networkUnavailable, .requestRateLimited:
             return true
-        default:
+        @unknown default:
             return false
         }
     }
@@ -1046,7 +1046,7 @@ final class VaultStore: ObservableObject {
                 return "Sign in to iCloud in Settings to sync with your other phone."
             case .zoneNotFound, .userDeletedZone:
                 return "The shared vault is no longer available in iCloud."
-            default:
+            @unknown default:
                 break
             }
         }
