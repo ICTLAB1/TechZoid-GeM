@@ -78,12 +78,27 @@ enum DocumentFieldExtractor {
         case alphanumeric   // policy / loan / folio numbers
         case money
         case date
+        /// The *last* date on the line. "Policy Period From … 30/06/2026 To …
+        /// 29/06/2027" carries the start and the end in one run of text.
+        case lastDate
         case percentage
         case name
         case phone
         case email
         case freeText
     }
+
+    /// Words that end a name, or that are a heading rather than a value.
+    ///
+    /// Real documents run a label straight into the next one — "Nominee Name :
+    /// Mrs Geetanjali Jain Relationship to Policyholder: Wife" — and without
+    /// this the nominee came out as "Name Mrs Geetanjali Jain Relationship".
+    private static let labelWords: Set<String> = [
+        "relationship", "policy", "policyholder", "holder", "date", "dob", "age",
+        "gender", "address", "member", "members", "nominee", "insured", "proposer",
+        "name", "details", "no", "number", "code", "contact", "mobile", "email",
+        "sum", "premium", "plan", "tier", "issued", "type", "branch", "account"
+    ]
 
     // MARK: Shared vocabularies and shapes
 
@@ -93,9 +108,12 @@ enum DocumentFieldExtractor {
     private static let aadhaarPattern = "\\b[2-9][0-9]{3}\\s?[0-9]{4}\\s?[0-9]{4}\\b"
     private static let emailPattern = "\\b[A-Z0-9._%+\\-]+@[A-Z0-9.\\-]+\\.[A-Z]{2,}\\b"
     private static let urlPattern = "\\b(?:https?://)?(?:www\\.)[A-Z0-9.\\-]+\\.[A-Z]{2,}\\b"
-    /// Indian mobiles and the 1800/1860 service numbers printed on statements.
+    /// Indian mobiles, the 1800/1860 service numbers, and the STD landlines
+    /// insurers actually print for their helplines — "022 6158 2020".
     private static let phonePattern =
-        "\\b(?:1800|1860)[\\s\\-]?[0-9]{2,4}[\\s\\-]?[0-9]{3,4}(?:[\\s\\-]?[0-9]{1,4})?\\b|\\b(?:\\+?91[\\s\\-]?)?[6-9][0-9]{9}\\b"
+        "\\b(?:1800|1860)[\\s\\-]?[0-9]{2,4}[\\s\\-]?[0-9]{3,4}(?:[\\s\\-]?[0-9]{1,4})?\\b"
+        + "|\\b0[1-9][0-9]{1,3}[\\s\\-][0-9]{3,4}[\\s\\-][0-9]{3,4}\\b"
+        + "|\\b(?:\\+?91[\\s\\-]?)?[6-9][0-9]{9}\\b"
     /// A UPI handle, anchored to the payment handles actually in use so it
     /// cannot swallow an ordinary email address sitting on the same page.
     private static let upiPattern =
@@ -130,6 +148,30 @@ enum DocumentFieldExtractor {
         (["idbi bank", "idbi"], "IDBI Bank"),
         (["citibank", "citi bank"], "Citibank"),
         (["hsbc"], "HSBC"),
+        (["bank of maharashtra"], "Bank of Maharashtra"),
+        (["punjab & sind bank", "punjab and sind bank"], "Punjab & Sind Bank"),
+        (["jammu & kashmir bank", "j&k bank"], "Jammu & Kashmir Bank"),
+        (["tamilnad mercantile"], "Tamilnad Mercantile Bank"),
+        (["karnataka bank"], "Karnataka Bank"),
+        (["karur vysya"], "Karur Vysya Bank"),
+        (["south indian bank"], "South Indian Bank"),
+        (["city union bank"], "City Union Bank"),
+        (["uco bank"], "UCO Bank"),
+        (["dcb bank"], "DCB Bank"),
+        (["csb bank"], "CSB Bank"),
+        (["equitas"], "Equitas Small Finance Bank"),
+        (["ujjivan"], "Ujjivan Small Finance Bank"),
+        (["jana small finance"], "Jana Small Finance Bank"),
+        (["esaf"], "ESAF Small Finance Bank"),
+        (["utkarsh"], "Utkarsh Small Finance Bank"),
+        (["suryoday"], "Suryoday Small Finance Bank"),
+        (["india post payments"], "India Post Payments Bank"),
+        (["airtel payments"], "Airtel Payments Bank"),
+        (["paytm payments"], "Paytm Payments Bank"),
+        (["fino payments"], "Fino Payments Bank"),
+        (["dbs bank"], "DBS Bank"),
+        (["deutsche bank"], "Deutsche Bank"),
+        (["sbm bank"], "SBM Bank"),
         (["pnb"], "Punjab National Bank"),
         (["sbi"], "State Bank of India")
     ]
@@ -165,7 +207,21 @@ enum DocumentFieldExtractor {
         (["indiafirst"], "IndiaFirst Life"),
         (["ageas federal"], "Ageas Federal Life"),
         (["edelweiss tokio"], "Edelweiss Tokio Life"),
-        (["shriram life"], "Shriram Life")
+        (["shriram life"], "Shriram Life"),
+        (["aditya birla health"], "Aditya Birla Health"),
+        (["universal sompo"], "Universal Sompo"),
+        (["future generali"], "Future Generali"),
+        (["iffco tokio"], "IFFCO Tokio"),
+        (["liberty general"], "Liberty General"),
+        (["magma hdi"], "Magma HDI"),
+        (["raheja qbe"], "Raheja QBE"),
+        (["kotak general"], "Kotak General"),
+        (["zuno general", "edelweiss general"], "Zuno General"),
+        (["acko"], "Acko"),
+        (["navi general"], "Navi General"),
+        (["pramerica life"], "Pramerica Life"),
+        (["aviva life"], "Aviva Life"),
+        (["bharti axa life"], "Bharti AXA Life")
     ]
 
     private static let amcVocabulary: [(terms: [String], value: String)] = [
@@ -286,15 +342,19 @@ enum DocumentFieldExtractor {
                 Rule(label: "Insurer", strategy: .vocabulary(insurerVocabulary), confidence: 0.85),
                 Rule(label: "Insurer", strategy: .cued(cues: ["insurer", "insurance company", "issued by"], kind: .name), confidence: 0.7),
                 Rule(label: "Policy holder", strategy: .cued(cues: ["policy holder", "policyholder", "proposer", "insured name", "name of the insured"], kind: .name)),
-                Rule(label: "Persons covered", strategy: .cued(cues: ["persons covered", "members covered", "lives assured", "insured members", "no. of members"], kind: .freeText), confidence: 0.75),
+                Rule(label: "Persons covered", strategy: .cued(cues: ["persons covered", "members covered", "lives assured", "insured members", "no. of members", "relationship to policy holder", "relationship to policyholder"], kind: .freeText), confidence: 0.75),
                 Rule(label: "Sum assured / cover", strategy: .cued(cues: ["sum assured", "sum insured", "cover amount", "basic sum assured", "coverage"], kind: .money), confidence: 0.88),
                 Rule(label: "Premium amount", strategy: .cued(cues: ["premium amount", "total premium", "instalment premium", "installment premium", "premium payable", "gross premium"], kind: .money), confidence: 0.85),
                 Rule(label: "Premium frequency", strategy: .cued(cues: ["premium frequency", "mode of payment", "payment mode", "premium mode"], kind: .freeText), confidence: 0.8),
-                Rule(label: "Start date", strategy: .cued(cues: ["date of commencement", "commencement date", "policy start", "risk commencement", "period of insurance from"], kind: .date)),
+                Rule(label: "Start date", strategy: .cued(cues: ["date of commencement", "commencement date", "policy start", "risk commencement", "period of insurance from", "policy period from"], kind: .date)),
                 Rule(label: "Maturity date", strategy: .cued(cues: ["date of maturity", "maturity date", "policy end", "expiry date", "period of insurance to"], kind: .date)),
+                // "Policy Period From … 30/06/2026 To … 29/06/2027" states both
+                // ends on one line, so the closing date is the last one on it.
+                Rule(label: "Maturity date", strategy: .cued(cues: ["policy period"], kind: .lastDate), confidence: 0.8),
                 Rule(label: "Nominee", strategy: .cued(cues: ["nominee", "name of nominee", "nominee name", "beneficiary"], kind: .name), confidence: 0.88),
-                Rule(label: "Agent / advisor", strategy: .cued(cues: ["agent mobile", "agent contact", "advisor contact", "agent name"], kind: .phone), confidence: 0.7),
-                Rule(label: "Claim helpline", strategy: .cued(cues: ["toll free", "toll-free", "helpline", "customer care", "claim intimation"], kind: .phone), confidence: 0.75),
+                // Brokers are "intermediary" on most Indian policy schedules.
+                Rule(label: "Agent / advisor", strategy: .cued(cues: ["agent mobile", "agent contact", "advisor contact", "agent name", "intermediary contact", "intermediary name", "intermediary"], kind: .phone), confidence: 0.8),
+                Rule(label: "Claim helpline", strategy: .cued(cues: ["toll free", "toll-free", "helpline number", "helpline", "customer care no", "customer care", "call center number", "call centre number", "claim intimation", "contact us"], kind: .phone), confidence: 0.8),
                 Rule(label: "Claim helpline", strategy: .pattern(phonePattern), confidence: 0.55)
             ]
 
@@ -436,7 +496,9 @@ enum DocumentFieldExtractor {
     private static func firstCuedMatch(rule: Rule, cues: [String], kind: ValueKind, lines: [String]) -> ExtractedField? {
         for (index, line) in lines.enumerated() {
             // Whole-word only: "emi" must not be answered by "PREMIER".
-            guard let hit = TextMatching.firstMatch(of: cues, in: line) else { continue }
+            // Longest cue first, so "nominee name" claims the line ahead of
+            // the bare "nominee" and the value starts after the whole label.
+            guard let hit = TextMatching.firstMatch(of: cues.sorted { $0.count > $1.count }, in: line) else { continue }
 
             // Value on the same line, after the cue and any separator…
             if let tail = trailing(of: line, after: hit.range),
@@ -583,23 +645,28 @@ enum DocumentFieldExtractor {
             let cleaned = match.trimmingCharacters(in: .whitespaces)
             return cleaned.hasSuffix("%") ? cleaned : cleaned + "%"
 
-        case .date:
-            let patterns = [
-                "[0-9]{1,2}[/\\-\\.][0-9]{1,2}[/\\-\\.][0-9]{2,4}",
-                "[0-9]{1,2}\\s+[A-Za-z]{3,9}\\s+[0-9]{4}",
-                "[A-Za-z]{3,9}\\s+[0-9]{1,2},?\\s+[0-9]{4}"
-            ]
-            for pattern in patterns {
-                if let match = firstMatch(in: trimmed, pattern: pattern) { return match }
-            }
-            return nil
+        case .date, .lastDate:
+            return dateValue(in: trimmed, takingLast: kind == .lastDate)
 
         case .name:
-            // Two to five words, letters only — enough to be a name and not a sentence.
-            let words = trimmed.split(separator: " ").prefix(6)
-            let letters = words.filter { $0.allSatisfy { $0.isLetter || $0 == "." } }
-            guard letters.count >= 2, letters.count <= 5 else { return nil }
-            return letters.joined(separator: " ")
+            // A name is capitalised and made of letters, and it ends where the
+            // next label begins. Requiring capitals is what stops a sentence
+            // fragment — "to modify the eKYC ID", "details have been updated"
+            // — being filed as somebody's name.
+            var words: [String] = []
+            for raw in trimmed.split(separator: " ") {
+                let bare = String(raw).trimmingCharacters(in: CharacterSet.letters.inverted)
+                guard !bare.isEmpty,
+                      bare.allSatisfy(\.isLetter),
+                      !labelWords.contains(bare.lowercased()),
+                      let initial = bare.first,
+                      initial.isUppercase
+                else { break }
+                words.append(bare)
+                if words.count == 5 { break }
+            }
+            guard words.count >= 2 else { return nil }
+            return words.joined(separator: " ")
 
         case .phone:
             guard let match = firstMatch(in: trimmed, pattern: phonePattern) else { return nil }
@@ -614,8 +681,40 @@ enum DocumentFieldExtractor {
             // A bare count — "Lives assured: 2" — is a legitimate one-character
             // answer, so digits are kept where a single letter would not be.
             if value.count == 1 { return value.allSatisfy(\.isNumber) ? value : nil }
-            return value.count >= 2 ? value : nil
+            guard value.count >= 2 else { return nil }
+            // "Insured Person Details" is a heading with the word "Details"
+            // after the cue, not a value. A lone label word is not an answer.
+            let bare = value.trimmingCharacters(in: CharacterSet.alphanumerics.inverted).lowercased()
+            return labelWords.contains(bare) ? nil : value
         }
+    }
+
+    /// The first — or last — date on a line, across every format we read.
+    private static func dateValue(in text: String, takingLast: Bool) -> String? {
+        let patterns = [
+            "[0-9]{1,2}[/\\-\\.][0-9]{1,2}[/\\-\\.][0-9]{2,4}",
+            "[0-9]{1,2}\\s+[A-Za-z]{3,9}\\s+[0-9]{4}",
+            "[A-Za-z]{3,9}\\s+[0-9]{1,2},?\\s+[0-9]{4}"
+        ]
+
+        var best: (position: String.Index, value: String)?
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let whole = NSRange(text.startIndex..., in: text)
+            for match in regex.matches(in: text, options: [], range: whole) {
+                guard let range = Range(match.range, in: text) else { continue }
+                let value = String(text[range])
+                guard let current = best else {
+                    best = (range.lowerBound, value)
+                    continue
+                }
+                let wins = takingLast
+                    ? range.lowerBound > current.position
+                    : range.lowerBound < current.position
+                if wins { best = (range.lowerBound, value) }
+            }
+        }
+        return best?.value
     }
 
     private static func firstMatch(in text: String, pattern: String, group: Int = 0) -> String? {
