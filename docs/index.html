@@ -88,6 +88,12 @@
       <div id="apple-sign-in-button"></div>
       <div id="apple-sign-out-button"></div>
     </div>
+    <div id="manualSignIn" class="row hide" style="margin-top:12px">
+      <button id="retryAuth" class="secondary">Show the Apple sign-in button</button>
+    </div>
+    <pre id="diag" class="hide" style="margin-top:14px; padding:11px; background:var(--bg);
+         border:1px solid var(--line); border-radius:9px; font-size:12px;
+         white-space:pre-wrap; word-break:break-word; color:var(--muted)"></pre>
   </section>
 
   <!-- 2. Unlock ------------------------------------------------------- -->
@@ -168,6 +174,27 @@ function say(message, kind) {
 }
 function clearStatus() { $("status").classList.add("hide"); }
 
+function diag(text) {
+  const el = $("diag");
+  el.textContent = text;
+  el.classList.remove("hide");
+}
+
+document.addEventListener("click", async (event) => {
+  if (event.target && event.target.id === "retryAuth") {
+    try {
+      const container = CloudKit.getDefaultContainer();
+      const user = await container.setUpAuth();
+      const slot = $("apple-sign-in-button");
+      diag("retry — signed in: " + !!user +
+           "\nbutton rendered: " + (slot && slot.innerHTML.trim().length > 0));
+      if (user) onSignedIn();
+    } catch (error) {
+      diag("retry failed: " + (error && (error.ckErrorCode || error.message) || error));
+    }
+  }
+});
+
 // --- byte helpers ----------------------------------------------------------
 const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 function bytesToB64(bytes) {
@@ -237,12 +264,26 @@ $("connect").addEventListener("click", async () => {
 
     const user = await container.setUpAuth();
     if (user) {
+      diag("setUpAuth returned a signed-in user: " + (user.userRecordName || "(no name)"));
       onSignedIn();
     } else {
-      // The button divs are already in the markup — CloudKit JS fills them in
-      // while setUpAuth runs, so there is nothing to create here.
       container.whenUserSignsIn().then(onSignedIn);
       say("Sign in with the Apple ID that owns the vault — use the button below.", "ok");
+
+      // Did CloudKit actually put a button in? Report it either way, and
+      // offer a manual retry when it did not.
+      setTimeout(() => {
+        const slot = $("apple-sign-in-button");
+        const filled = slot && slot.innerHTML.trim().length > 0;
+        diag(
+          "CloudKit JS loaded: " + (typeof CloudKit !== "undefined") + "\n" +
+          "setUpAuth returned: null (not signed in)\n" +
+          "sign-in button rendered: " + filled + "\n" +
+          (filled ? "" : "button slot is empty — CloudKit did not inject its button.\n") +
+          "origin: " + window.location.origin
+        );
+        if (!filled) $("manualSignIn").classList.remove("hide");
+      }, 1200);
     }
   } catch (error) {
     // CloudKit's thrown message is vague — the useful part (ckErrorCode,
