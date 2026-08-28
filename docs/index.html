@@ -341,10 +341,22 @@ $("unlock").addEventListener("click", async () => {
 });
 
 async function fetchMeta() {
-  const response = await db.fetchRecords(
-    { recordName: META_RECORD, zoneID: { zoneName: ZONE_NAME } }
-  );
-  if (response.hasErrors) throw new Error(describe(response.errors[0]));
+  const zoneID = { zoneName: ZONE_NAME };
+  const response = await db.fetchRecords(META_RECORD, { zoneID });
+  if (response.hasErrors) {
+    // Say which zones do exist — that separates "wrong environment" from
+    // "wrong zone name" immediately.
+    let zones = "(could not list zones)";
+    try {
+      const list = await db.fetchRecordZones();
+      zones = (list.zones || []).map((z) => z.zoneID.zoneName).join(", ") || "(none)";
+    } catch (e) {}
+    diag("Looking for record '" + META_RECORD + "' in zone '" + ZONE_NAME + "'.\n" +
+         "CloudKit said: " + describe(response.errors[0]) + "\n" +
+         "Zones in this database: " + zones + "\n" +
+         "Environment: " + $("env").value);
+    throw new Error(describe(response.errors[0]));
+  }
   const record = response.records[0];
   if (!record) throw new Error("No vault found in this iCloud account.");
   return {
@@ -356,7 +368,8 @@ async function fetchMeta() {
 
 async function loadEntries() {
   const response = await db.performQuery(
-    { recordType: TYPE_ITEM, zoneID: { zoneName: ZONE_NAME } }
+    { recordType: TYPE_ITEM },
+    { zoneID: { zoneName: ZONE_NAME } }
   );
   if (response.hasErrors) throw new Error(describe(response.errors[0]));
 
@@ -476,6 +489,7 @@ async function saveEntry(index, button) {
       recordName: entry.recordName,
       recordType: TYPE_ITEM,
       recordChangeTag: entry.recordChangeTag,
+      zoneID: { zoneName: ZONE_NAME },
       fields: {
         payload: { value: bytesToB64(sealed) },
         updatedAt: { value: Date.now() },
